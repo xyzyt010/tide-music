@@ -8,20 +8,33 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.example.tidemusic.di.ServiceLocator
 import com.example.tidemusic.playback.ConnectionHolder
 import com.example.tidemusic.theme.TideMusicTheme
 import com.example.tidemusic.ui.AppShell
 import com.example.tidemusic.ui.LocalMediaController
+import com.example.tidemusic.ui.common.AppLoadingScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Single-activity host (spec Section 1). All screens are Compose destinations. */
@@ -55,8 +68,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             TideMusicTheme {
                 val context = this
-                var showGuide by androidx.compose.runtime.remember {
-                    androidx.compose.runtime.mutableStateOf(!hasCompletedOnboarding && !hasAllPermissions())
+                var showGuide by remember {
+                    mutableStateOf(!hasCompletedOnboarding && !hasAllPermissions())
+                }
+                var isAppReady by remember { mutableStateOf(false) }
+
+                LaunchedEffect(Unit) {
+                    // Allow UI hierarchy and database indices to finish initializing smoothly
+                    delay(700L)
+                    isAppReady = true
                 }
 
                 // Connect to the MediaSessionService once for the app's lifetime.
@@ -66,21 +86,33 @@ class MainActivity : ComponentActivity() {
                 }
                 val controller by ConnectionHolder.controller.collectAsState()
                 CompositionLocalProvider(LocalMediaController provides controller) {
-                    AppShell(initialDeepLink = initialDeepLink)
+                    Box(Modifier.fillMaxSize()) {
+                        AppShell(initialDeepLink = initialDeepLink)
 
-                    if (showGuide) {
-                        com.example.tidemusic.ui.onboarding.WelcomeGuideDialog(
-                            onGrantPermissions = {
-                                prefs.edit().putBoolean("has_completed_onboarding", true).apply()
-                                showGuide = false
-                                requestPermissionsIfNeeded()
-                            },
-                            onDismiss = {
-                                prefs.edit().putBoolean("has_completed_onboarding", true).apply()
-                                showGuide = false
-                                requestPermissionsIfNeeded()
-                            }
-                        )
+                        // Subtle initial loading screen with running blue line beam
+                        AnimatedVisibility(
+                            visible = !isAppReady,
+                            enter = fadeIn(tween(100)),
+                            exit = fadeOut(tween(450)),
+                            modifier = Modifier.fillMaxSize().zIndex(99f),
+                        ) {
+                            AppLoadingScreen()
+                        }
+
+                        if (showGuide) {
+                            com.example.tidemusic.ui.onboarding.WelcomeGuideDialog(
+                                onGrantPermissions = {
+                                    prefs.edit().putBoolean("has_completed_onboarding", true).apply()
+                                    showGuide = false
+                                    requestPermissionsIfNeeded()
+                                },
+                                onDismiss = {
+                                    prefs.edit().putBoolean("has_completed_onboarding", true).apply()
+                                    showGuide = false
+                                    requestPermissionsIfNeeded()
+                                }
+                            )
+                        }
                     }
                 }
             }
