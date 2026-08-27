@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface AlbumDao {
 
-    @Query("SELECT * FROM albums WHERE name != 'Unknown' OR track_count > 0 ORDER BY name COLLATE NOCASE ASC")
+    @Query("SELECT * FROM albums WHERE LOWER(name) NOT IN ('unknown', 'download', 'downloads', 'music', 'tidemusic', 'audio', 'podcasts', 'audiobooks', 'dcim', '0', 'sdcard', 'emulated', 'storage', 'internal storage') AND track_count > 0 ORDER BY name COLLATE NOCASE ASC")
     fun observeAlbums(): Flow<List<AlbumEntity>>
 
     @Query("SELECT * FROM albums WHERE id = :id")

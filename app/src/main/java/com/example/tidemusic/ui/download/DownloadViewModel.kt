@@ -55,13 +55,33 @@ class DownloadViewModel(
         emptyList(),
     )
 
+    val playlists: StateFlow<List<com.example.tidemusic.domain.Playlist>> = repository.observePlaylists().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList(),
+    )
+
     private val _downloadWithLyrics = MutableStateFlow(true)
     val downloadWithLyrics: StateFlow<Boolean> = _downloadWithLyrics
+
+    private val _qualityKbps = MutableStateFlow(320)
+    val qualityKbps: StateFlow<Int> = _qualityKbps
+
+    private val _engine = MutableStateFlow("yt-dlp")
+    val engine: StateFlow<String> = _engine
 
     fun setUrl(v: String) { _url.value = v }
 
     fun setDownloadWithLyrics(value: Boolean) {
         _downloadWithLyrics.value = value
+    }
+
+    fun setQualityKbps(value: Int) {
+        _qualityKbps.value = value
+    }
+
+    fun setEngine(value: String) {
+        _engine.value = value
     }
 
     val isUrlValid: Boolean get() {
@@ -78,7 +98,12 @@ class DownloadViewModel(
         viewModelScope.launch {
             try { repository.ensureYtDlpPlaylist() } catch (_: Exception) {}
         }
-        downloadManager.enqueueDownload(_url.value.trim(), downloadWithLyrics = _downloadWithLyrics.value)
+        downloadManager.enqueueDownload(
+            url = _url.value.trim(),
+            downloadWithLyrics = _downloadWithLyrics.value,
+            qualityKbps = _qualityKbps.value,
+            engine = _engine.value,
+        )
         _url.value = ""
     }
 
@@ -121,6 +146,29 @@ class DownloadViewModel(
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 repository.rescanFull()
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun deleteMultipleSongsPermanently(songIds: Set<Long>) {
+        viewModelScope.launch {
+            try {
+                songIds.forEach { id -> repository.removeSongFromYtDlpPlaylist(id) }
+                repository.deletePermanently(songIds.toList())
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun addSongsToQueue(songs: List<Song>) {
+        try {
+            playbackController.addToQueue(songs)
+        } catch (_: Exception) {}
+    }
+
+    fun addSongsToPlaylist(playlistId: Long, songIds: List<Long>) {
+        viewModelScope.launch {
+            try {
+                repository.addSongsToPlaylist(playlistId, songIds)
             } catch (_: Exception) {}
         }
     }

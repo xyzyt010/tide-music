@@ -153,6 +153,16 @@ class PlaybackController constructor(
         }
     }
 
+    fun addToQueue(songs: List<Song>) {
+        val p = player ?: return
+        try {
+            p.addMediaItems(songs.map(::mediaItemFor))
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error adding multiple to queue", e)
+        }
+    }
+
     fun togglePlayPause() {
         val p = player ?: return
         try {

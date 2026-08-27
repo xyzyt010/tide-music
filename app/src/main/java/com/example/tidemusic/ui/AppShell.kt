@@ -205,15 +205,26 @@ fun AppShell(initialDeepLink: String? = null) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(if (isPlayerPage) Color.Transparent else Color(0xFF101010).copy(alpha = 0.96f))
+                                .background(if (isPlayerPage) Color.Transparent else Color(0xFF0D0D0D).copy(alpha = 0.96f))
                                 .drawBehind {
                                     if (!isPlayerPage) {
+                                        // Soft upward translucent shadow gradient
+                                        drawRect(
+                                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Black.copy(alpha = 0.45f),
+                                                    Color.Transparent,
+                                                ),
+                                                startY = 0f,
+                                                endY = 14.dp.toPx(),
+                                            )
+                                        )
                                         // Thin translucent highlighting division line on top of bottom bar
                                         drawLine(
-                                            color = barOutline,
+                                            color = Color.White.copy(alpha = 0.18f),
                                             start = Offset(0f, 0f),
                                             end = Offset(size.width, 0f),
-                                            strokeWidth = 1.dp.toPx()
+                                            strokeWidth = 1.dp.toPx(),
                                         )
                                     }
                                 }

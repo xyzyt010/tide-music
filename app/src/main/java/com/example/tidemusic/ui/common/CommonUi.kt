@@ -191,15 +191,18 @@ fun MiniPlayerBar(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(68.dp)
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .height(78.dp)
+            .padding(0.dp)
             .background(Color.Black)
-            .border(
-                width = 1.dp,
-                color = if (hasArtwork) Color.White.copy(alpha = 0.16f) else TideColors.outline,
-                shape = RoundedCornerShape(14.dp),
-            )
+            .drawBehind {
+                // Subtle top hairline border
+                drawLine(
+                    color = if (hasArtwork) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.10f),
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
             .clickable(onClick = onClick),
     ) {
         // Frosted glass blurred background of song artwork.
@@ -357,19 +360,19 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 val displayFraction = if (isDraggingTimeline) dragFraction else currentFraction
 
                 val trackHeight by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 4.5.dp else 3.dp,
-                    label = "miniTrackHeight"
+                    targetValue = if (isDraggingTimeline) 3.5.dp else 2.5.dp,
+                    label = "miniTrackHeight",
                 )
                 val knobSize by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 13.dp else 8.dp,
-                    label = "miniKnobSize"
+                    targetValue = if (isDraggingTimeline) 14.dp else 8.dp,
+                    label = "miniKnobSize",
                 )
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(16.dp)
-                        .padding(horizontal = 8.dp)
+                        .height(18.dp)
+                        .padding(horizontal = 14.dp)
                         .pointerInput(duration) {
                             detectTapGestures(
                                 onPress = { offset ->
@@ -404,7 +407,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                                 }
                             )
                         },
-                    contentAlignment = Alignment.CenterStart
+                    contentAlignment = Alignment.CenterStart,
                 ) {
                     // Inactive background track line
                     Box(
@@ -412,7 +415,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             .fillMaxWidth()
                             .height(trackHeight)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.22f))
+                            .background(Color.White.copy(alpha = 0.20f)),
                     )
 
                     // Active elapsed track line
@@ -421,7 +424,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             .fillMaxWidth(displayFraction)
                             .height(trackHeight)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(TideColors.accent)
+                            .background(TideColors.accent),
                     )
 
                     // Expanding round knob + glowing halo
@@ -429,15 +432,24 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth(displayFraction)
                             .wrapContentWidth(Alignment.End),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         if (isDraggingTimeline) {
+                            // Outer glowing shadow aura
                             Box(
                                 modifier = Modifier
-                                    .offset(x = (knobSize + 8.dp) / 2)
-                                    .size(knobSize + 8.dp)
+                                    .offset(x = (knobSize + 10.dp) / 2)
+                                    .size(knobSize + 10.dp)
                                     .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.25f))
+                                    .background(Color(0xFF2979FF).copy(alpha = 0.35f)),
+                            )
+                            // Inner subtle glow
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = (knobSize + 6.dp) / 2)
+                                    .size(knobSize + 6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.30f)),
                             )
                         }
                         Box(
@@ -445,11 +457,11 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                                 .offset(x = knobSize / 2)
                                 .size(knobSize)
                                 .clip(CircleShape)
-                                .background(Color.White)
+                                .background(Color.White),
                         )
                     }
                 }
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(4.dp))
             }
         }
     }

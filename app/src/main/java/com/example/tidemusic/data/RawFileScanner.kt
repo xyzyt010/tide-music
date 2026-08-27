@@ -72,9 +72,10 @@ class RawFileScanner {
                             val a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                             if (!a.isNullOrBlank()) artist = a.trim()
                             val alb = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                            if (!alb.isNullOrBlank() && !alb.equals("Unknown", true)) {
+                            val isGenAlb = isGenericOrInvalidAlbum(alb)
+                            if (!alb.isNullOrBlank() && !isGenAlb) {
                                 album = alb.trim()
-                            } else if (folderName.isNotBlank() && !folderName.equals("Music", true) && !folderName.equals("Download", true) && !folderName.equals("TideMusic", true)) {
+                            } else if (folderName.isNotBlank() && !isGenericOrInvalidAlbum(folderName)) {
                                 album = folderName
                             } else {
                                 album = title.ifBlank { "Unknown" }
@@ -128,5 +129,15 @@ class RawFileScanner {
         }
 
         out
+    }
+
+    private fun isGenericOrInvalidAlbum(name: String?): Boolean {
+        if (name.isNullOrBlank()) return true
+        val lower = name.trim().lowercase()
+        return lower in setOf(
+            "unknown", "download", "downloads", "music", "tidemusic", "audio",
+            "podcasts", "audiobooks", "dcim", "0", "sdcard", "emulated", "storage",
+            "internal storage", "sounds", "recordings", "voice"
+        )
     }
 }

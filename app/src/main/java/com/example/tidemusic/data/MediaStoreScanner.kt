@@ -97,8 +97,10 @@ class MediaStoreScanner(private val context: Context) {
                     val title = (if (titleCol != -1) c.getString(titleCol) else null)?.takeIf { it.isNotBlank() } ?: displayName.ifBlank { "Unknown" }
                     val artist = (if (artistCol != -1) c.getString(artistCol) else null)?.takeIf { it.isNotBlank() } ?: "Unknown"
                     val parentFolder = if (data.isNotBlank()) File(data).parentFile?.name else null
-                    val album = (if (albumCol != -1) c.getString(albumCol) else null)?.takeIf { it.isNotBlank() && !it.equals("Unknown", true) }
-                        ?: (if (!parentFolder.isNullOrBlank() && !parentFolder.equals("Music", true) && !parentFolder.equals("Download", true) && !parentFolder.equals("TideMusic", true)) parentFolder else title.ifBlank { "Unknown" })
+                    val rawAlbum = (if (albumCol != -1) c.getString(albumCol) else null)?.trim()
+                    val isGeneric = isGenericOrInvalidAlbum(rawAlbum)
+                    val album = if (!isGeneric && !rawAlbum.isNullOrBlank()) rawAlbum
+                        else (if (!parentFolder.isNullOrBlank() && !isGenericOrInvalidAlbum(parentFolder)) parentFolder else title.ifBlank { "Unknown" })
                     val albumArtist = if (albumArtistCol != -1) c.getString(albumArtistCol)?.takeIf { it.isNotBlank() } else null
                     val folderPath = data.substringBeforeLast('/', "")
                     val folderId = if (folderPath.isBlank()) null else StableIds.folderId(folderPath)
@@ -140,6 +142,16 @@ class MediaStoreScanner(private val context: Context) {
         out
     }
 
+    private fun isGenericOrInvalidAlbum(name: String?): Boolean {
+        if (name.isNullOrBlank()) return true
+        val lower = name.trim().lowercase()
+        return lower in setOf(
+            "unknown", "download", "downloads", "music", "tidemusic", "audio",
+            "podcasts", "audiobooks", "dcim", "0", "sdcard", "emulated", "storage",
+            "internal storage", "sounds", "recordings", "voice"
+        )
+    }
+
     private fun stableSongId(filePath: String, mediaStoreId: Long): Long =
         if (filePath.isNotBlank()) StableIds.pathId(filePath) else mediaStoreId
 
@@ -163,23 +175,25 @@ class MediaStoreScanner(private val context: Context) {
                 ArtistEntity(artistId, t.artist, trackCount = 1, albumCount = 0),
             ) { a, b -> a.copy(trackCount = a.trackCount + b.trackCount) }
 
-            val albumId = StableIds.albumId(t.album, t.albumArtist ?: t.artist)
-            albums.merge(
-                albumId,
-                AlbumEntity(
-                    id = albumId,
-                    name = t.album,
-                    artist = t.albumArtist ?: t.artist,
-                    artworkUri = t.artworkUri,
-                    trackCount = 1,
-                    totalDurationMs = t.durationMs,
-                ),
-            ) { a, b ->
-                a.copy(
-                    trackCount = a.trackCount + 1,
-                    totalDurationMs = a.totalDurationMs + b.totalDurationMs,
-                    artworkUri = a.artworkUri ?: b.artworkUri
-                )
+            if (!isGenericOrInvalidAlbum(t.album)) {
+                val albumId = StableIds.albumId(t.album, t.albumArtist ?: t.artist)
+                albums.merge(
+                    albumId,
+                    AlbumEntity(
+                        id = albumId,
+                        name = t.album,
+                        artist = t.albumArtist ?: t.artist,
+                        artworkUri = t.artworkUri ?: t.filePath,
+                        trackCount = 1,
+                        totalDurationMs = t.durationMs,
+                    ),
+                ) { a, b ->
+                    a.copy(
+                        trackCount = a.trackCount + 1,
+                        totalDurationMs = a.totalDurationMs + b.totalDurationMs,
+                        artworkUri = a.artworkUri ?: b.artworkUri ?: t.filePath
+                    )
+                }
             }
 
             songs += SongEntity(

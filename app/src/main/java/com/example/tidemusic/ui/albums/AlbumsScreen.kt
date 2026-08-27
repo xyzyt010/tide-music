@@ -5,20 +5,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,16 +36,13 @@ import com.example.tidemusic.domain.Album
 import com.example.tidemusic.domain.LibraryRepository
 import com.example.tidemusic.theme.TideColors
 import com.example.tidemusic.ui.rememberTideViewModel
-import com.example.tidemusic.util.PlaceholderArt
-import com.example.tidemusic.util.orUnknown
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
 /**
- * Albums screen (spec Section 6.2): a grid of album-art blocks. Tapping opens the album
- * detail screen listing its tracks in order. Missing artwork falls back to the same
- * placeholder-gradient system used everywhere else (Section 8.1).
+ * Albums screen (spec Section 6.2): a grid of album-art blocks.
+ * Deduplicates album entries, excludes generic folder names, and resolves real embedded art.
  */
 class AlbumsViewModel(
     repository: LibraryRepository,
@@ -58,16 +57,24 @@ fun AlbumsScreen(
     onOpenScreen: (NavKey) -> Unit,
     viewModel: AlbumsViewModel = rememberTideViewModel { AlbumsViewModel(it.repository) },
 ) {
-    val albums by viewModel.albums.collectAsState()
+    val rawAlbums by viewModel.albums.collectAsState()
+    val distinctAlbums = remember(rawAlbums) {
+        val seen = HashSet<String>()
+        rawAlbums.filter { album ->
+            val key = "${album.name.trim().lowercase()}|||${album.artist.trim().lowercase()}"
+            seen.add(key)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         com.example.tidemusic.ui.common.ThinTopBar(title = "Albums")
-        if (albums.isEmpty()) {
+        if (distinctAlbums.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "No albums found.\nAlbums need at least 2 songs with proper album tags.\nYou can download music from the Download tab.",
+                    text = "No albums found.\nAlbums need valid tags.\nYou can download music from the Download tab.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = TideColors.textSecondary,
-                    modifier = Modifier.padding(32.dp)
+                    modifier = Modifier.padding(32.dp),
                 )
             }
         } else {
@@ -77,7 +84,7 @@ fun AlbumsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                items(albums, key = { it.id }) { album ->
+                items(distinctAlbums, key = { it.id }) { album ->
                     AlbumTile(album = album, onClick = { onAlbumClick(album.id) })
                 }
             }
@@ -87,6 +94,23 @@ fun AlbumsScreen(
 
 @Composable
 private fun AlbumTile(album: Album, onClick: () -> Unit) {
+    val artworkModel: Any? = remember(album.id, album.artworkUri) {
+        val uri = album.artworkUri
+        if (uri != null && (uri.startsWith("content://") || uri.startsWith("http://") || uri.startsWith("https://"))) {
+            android.net.Uri.parse(uri)
+        } else if (!uri.isNullOrBlank()) {
+            com.example.tidemusic.util.SongArtworkRequest(
+                songId = album.id,
+                filePath = uri,
+                uriString = "",
+                dateModified = 0L,
+            )
+        } else {
+            null
+        }
+    }
+    var imageSuccess by remember(album.id) { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -100,14 +124,18 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
                 .background(Color.Black),
             contentAlignment = Alignment.Center,
         ) {
-            if (album.artworkUri != null) {
+            if (artworkModel != null) {
                 AsyncImage(
-                    model = android.net.Uri.parse(album.artworkUri),
-                    contentDescription = null,
+                    model = artworkModel,
+                    contentDescription = album.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
+                    },
                 )
-            } else {
+            }
+            if (!imageSuccess) {
                 com.example.tidemusic.ui.common.VinylDiscPlaceholder(
                     modifier = Modifier.fillMaxSize(0.75f),
                     spinning = false,
@@ -115,17 +143,19 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
             }
         }
         Text(
-            text = album.name.orUnknown(),
+            text = album.name.takeIf { it.isNotBlank() } ?: "Unknown Album",
             style = MaterialTheme.typography.bodyMedium,
             color = TideColors.textPrimary,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),
         )
         Text(
-            text = album.artist.orUnknown(),
+            text = album.artist.takeIf { it.isNotBlank() } ?: "Unknown Artist",
             style = MaterialTheme.typography.bodySmall,
             color = TideColors.textSecondary,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

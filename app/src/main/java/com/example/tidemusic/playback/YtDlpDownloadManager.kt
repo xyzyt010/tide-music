@@ -65,7 +65,12 @@ class YtDlpDownloadManager(
         return msg ?: "Connected"
     }
 
-    fun enqueueDownload(url: String, downloadWithLyrics: Boolean = true) {
+    fun enqueueDownload(
+        url: String,
+        downloadWithLyrics: Boolean = true,
+        qualityKbps: Int = 320,
+        engine: String = "yt-dlp",
+    ) {
         scope.launch {
             val networkStatus = checkNetworkAvailability()
             if (networkStatus == "No internet connection") {
@@ -96,7 +101,13 @@ class YtDlpDownloadManager(
                     req.addOption("-o", taskDir.absolutePath + "/%(title)s.%(ext)s")
                     req.addOption("-x") // Extract audio
                     req.addOption("--audio-format", "mp3")
-                    req.addOption("--audio-quality", "0")
+                    val qualityOpt = when (qualityKbps) {
+                        320 -> "0"
+                        192 -> "2"
+                        128 -> "5"
+                        else -> "0"
+                    }
+                    req.addOption("--audio-quality", qualityOpt)
                     req.addOption("--embed-metadata")
                     req.addOption("--embed-thumbnail")
                     req.addOption("--no-playlist")
