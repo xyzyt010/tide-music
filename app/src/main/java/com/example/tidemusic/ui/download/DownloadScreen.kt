@@ -13,12 +13,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -53,6 +59,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import com.example.tidemusic.theme.TideColors
+import com.example.tidemusic.ui.common.CenteredMenuItem
+import com.example.tidemusic.ui.common.CenteredMenuDivider
+import com.example.tidemusic.ui.common.CenteredOverflowMenu
 import com.example.tidemusic.ui.common.SongRow
 import com.example.tidemusic.ui.rememberTideViewModel
 
@@ -71,10 +80,60 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
     val activeTasks by viewModel.activeTasks.collectAsState()
     val ytDlpSongs by viewModel.ytDlpSongs.collectAsState()
     val networkStatus by viewModel.networkStatusMessage.collectAsState()
+    val downloadWithLyrics by viewModel.downloadWithLyrics.collectAsState()
     val clipboard = LocalClipboardManager.current
+    var showSettingsMenu by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(TideColors.background)) {
-        com.example.tidemusic.ui.common.ThinTopBar(title = "Downloads")
+        com.example.tidemusic.ui.common.ThinTopBar(
+            title = "Downloads",
+            trailing = {
+                Box {
+                    IconButton(onClick = { showSettingsMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "Download Settings",
+                            tint = TideColors.textPrimary,
+                        )
+                    }
+                    CenteredOverflowMenu(
+                        visible = showSettingsMenu,
+                        onDismiss = { showSettingsMenu = false },
+                        title = "Download Settings",
+                    ) {
+                        CenteredMenuItem(
+                            icon = if (downloadWithLyrics) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                            label = if (downloadWithLyrics) "Auto-download Synced Lyrics (LRC)" else "Download Lyrics: Disabled",
+                        ) {
+                            viewModel.setDownloadWithLyrics(!downloadWithLyrics)
+                        }
+                        CenteredMenuItem(
+                            icon = Icons.Rounded.Refresh,
+                            label = "Rescan Library for Downloads",
+                        ) {
+                            showSettingsMenu = false
+                            viewModel.rescanLibrary()
+                        }
+                        if (tasks.isNotEmpty()) {
+                            CenteredMenuItem(
+                                icon = Icons.Rounded.DeleteSweep,
+                                label = "Clear Download Tasks History",
+                            ) {
+                                showSettingsMenu = false
+                                viewModel.clearAll()
+                            }
+                        }
+                        CenteredMenuDivider()
+                        CenteredMenuItem(
+                            icon = Icons.Rounded.Info,
+                            label = "Format: Audio (yt-dlp high quality)",
+                        ) {
+                            showSettingsMenu = false
+                        }
+                    }
+                }
+            }
+        )
         Column(Modifier.fillMaxSize().weight(1f).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -88,8 +147,6 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
                     clipboard.getText()?.let { viewModel.setUrl(it.text) }
                 }) { Icon(Icons.Rounded.ContentPaste, null) }
             }
-
-            val downloadWithLyrics by viewModel.downloadWithLyrics.collectAsState()
 
             Row(
                 modifier = Modifier

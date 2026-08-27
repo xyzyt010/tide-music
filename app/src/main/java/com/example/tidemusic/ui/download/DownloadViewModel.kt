@@ -116,4 +116,12 @@ class DownloadViewModel(
             playbackController.setQueue(songs, startIndex = index)
         } catch (_: Exception) {}
     }
+
+    fun rescanLibrary() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                repository.rescanFull()
+            } catch (_: Exception) {}
+        }
+    }
 }
