@@ -29,6 +29,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+data class ScanProgress(
+    val isScanning: Boolean = false,
+    val stage: String = "",
+    val count: Int = 0,
+)
+
 /**
  * Single source of truth for the library (spec Section 8.3).
  *
@@ -51,6 +61,9 @@ class LibraryRepository constructor(
     private val scanner = MediaStoreScanner(context)
     private val treeBuilder = FolderTreeBuilder()
 
+    private val _scanProgress = MutableStateFlow(ScanProgress())
+    val scanProgress: StateFlow<ScanProgress> = _scanProgress.asStateFlow()
+
     // ── Library scan (spec Section 3 — incremental diff against dateModified) ─────────
 
     private val rawScanner = com.example.tidemusic.data.RawFileScanner()
@@ -60,10 +73,23 @@ class LibraryRepository constructor(
      * Respects user-configured folder exclusion settings.
      */
     suspend fun rescanFull(includePrefixes: Collection<String>? = null) = withContext(Dispatchers.IO) {
+        _scanProgress.value = ScanProgress(isScanning = true, stage = "Querying audio index...", count = 0)
         val msScanned = scanner.scan()
-        val rawScanned = try { rawScanner.scan() } catch (e: Exception) { emptyList() }
+        _scanProgress.value = ScanProgress(isScanning = true, stage = "Staging audio tracks...", count = msScanned.size)
         
         val existingPaths = msScanned.mapTo(HashSet()) { it.filePath }
+        val rawScanned = try {
+            rawScanner.scan(knownPaths = existingPaths) { unindexedFound ->
+                _scanProgress.value = ScanProgress(
+                    isScanning = true,
+                    stage = "Discovering unindexed songs...",
+                    count = msScanned.size + unindexedFound,
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        
         val mergedScanned = msScanned.toMutableList()
         for (raw in rawScanned) {
             if (!existingPaths.contains(raw.filePath)) {
@@ -76,6 +102,8 @@ class LibraryRepository constructor(
             excluded.none { ex -> track.filePath.startsWith(ex) }
         }
 
+        _scanProgress.value = ScanProgress(isScanning = true, stage = "Organizing library...", count = filteredScanned.size)
+
         songDao.deleteAll()
         albumDao.deleteAllAlbums()
         albumDao.deleteAllArtists()
@@ -87,6 +115,8 @@ class LibraryRepository constructor(
         val folderTree = treeBuilder.build(songs, includePrefixes)
         folderDao.deleteAll()
         folderDao.upsertAll(folderTree.folders)
+
+        _scanProgress.value = ScanProgress(isScanning = false, stage = "Complete", count = songs.size)
         Unit
     }
 

@@ -9,40 +9,59 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * A true physical filesystem scanner that walks accessible directories in external storage,
- * extracting real ID3/embedded tags so all albums and songs are correctly categorized.
+ * A fast physical filesystem scanner that walks accessible directories in external storage,
+ * extracting real ID3/embedded tags for any unindexed music files.
  */
 class RawFileScanner {
 
-    suspend fun scan(): List<MediaStoreScanner.ScannedTrack> = withContext(Dispatchers.IO) {
+    private val ignoredDirNames = setOf(
+        "android", "cache", "thumbnails", "obb", "system", ".trash", "lost.dir",
+        ".cache", ".temp", ".thumbnails", ".data"
+    )
+
+    suspend fun scan(
+        knownPaths: Set<String> = emptySet(),
+        onTrackFound: ((Int) -> Unit)? = null,
+    ): List<MediaStoreScanner.ScannedTrack> = withContext(Dispatchers.IO) {
         val root = Environment.getExternalStorageDirectory()
         val out = mutableListOf<MediaStoreScanner.ScannedTrack>()
         val supportedExtensions = setOf("mp3", "m4a", "flac", "wav", "aac", "ogg", "opus")
 
-        val targetDirs = listOf(
-            File(root, "Music"),
-            File(root, "Download"),
-            File(root, "Podcasts"),
-            File(root, "Audiobooks"),
-            File(root, "DCIM"),
-            File(root, "TideMusic"),
-            root
-        )
+        // Priority audio folders first, then general top-level user directories (without duplicate recursion)
+        val candidateDirs = mutableListOf<File>()
+        listOf("Music", "Download", "Podcasts", "Audiobooks", "TideMusic", "DCIM", "Documents", "Ringtones").forEach {
+            val f = File(root, it)
+            if (f.exists() && f.isDirectory) candidateDirs.add(f)
+        }
 
-        val scannedPaths = HashSet<String>()
+        // Add any other user folder in root (excluding system/ignored directories)
+        root.listFiles()?.forEach { f ->
+            if (f.isDirectory && !candidateDirs.contains(f)) {
+                val name = f.name.lowercase()
+                if (!name.startsWith(".") && name !in ignoredDirNames) {
+                    candidateDirs.add(f)
+                }
+            }
+        }
+
+        val visitedDirs = HashSet<String>()
+        val scannedPaths = HashSet<String>(knownPaths)
 
         fun walk(dir: File, depth: Int = 0) {
-            if (depth > 6) return // Prevent deep recursive stuck states
+            if (depth > 5) return
+            val canonicalPath = try { dir.canonicalPath } catch (_: Exception) { dir.absolutePath }
+            if (!visitedDirs.add(canonicalPath)) return
+
             val files = try {
                 dir.listFiles()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             } ?: return
 
             for (file in files) {
                 if (file.isDirectory) {
-                    val name = file.name
-                    if (!name.startsWith(".") && name != "Android") {
+                    val name = file.name.lowercase()
+                    if (!name.startsWith(".") && name !in ignoredDirNames) {
                         walk(file, depth + 1)
                     }
                 } else {
@@ -114,18 +133,17 @@ class RawFileScanner {
                                 trackNumber = trackNum,
                                 discNumber = discNum,
                                 folderId = folderId,
-                                artworkUri = null
+                                artworkUri = null,
                             )
                         )
+                        onTrackFound?.invoke(out.size)
                     }
                 }
             }
         }
 
-        for (d in targetDirs) {
-            if (d.exists() && d.isDirectory) {
-                walk(d, 0)
-            }
+        for (d in candidateDirs) {
+            walk(d, 0)
         }
 
         out

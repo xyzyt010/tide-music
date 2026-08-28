@@ -15,15 +15,18 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
@@ -187,17 +190,16 @@ fun MiniPlayerBar(onClick: () -> Unit) {
         }
     }
     var hasArtwork by remember(song?.id) { mutableStateOf(false) }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(78.dp)
+            .height(88.dp)
             .padding(0.dp)
-            .background(Color.Black)
+            .background(Color(0xFF0F0F0F))
             .drawBehind {
                 // Subtle top hairline border
                 drawLine(
-                    color = if (hasArtwork) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.10f),
+                    color = if (hasArtwork) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.12f),
                     start = Offset(0f, 0f),
                     end = Offset(size.width, 0f),
                     strokeWidth = 1.dp.toPx()
@@ -205,20 +207,18 @@ fun MiniPlayerBar(onClick: () -> Unit) {
             }
             .clickable(onClick = onClick),
     ) {
-        // Frosted glass blurred background of song artwork.
-        // Overscanned slightly so the blur doesn't produce dark fringes at the edges,
-        // and scaled up so a stronger radius still fills the bar completely.
+        // Frosted glass blurred background of song artwork filling the entire surface
         if (artworkModel != null) {
             AsyncImage(
                 model = artworkModel,
                 contentDescription = null,
                 modifier = Modifier
-                    .matchParentSize()
+                    .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = 1.35f
-                        scaleY = 1.35f
+                        scaleX = 1.45f
+                        scaleY = 1.45f
                     }
-                    .blur(40.dp),
+                    .blur(45.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 onState = { state ->
                     hasArtwork = state is coil3.compose.AsyncImagePainter.State.Success
@@ -226,28 +226,35 @@ fun MiniPlayerBar(onClick: () -> Unit) {
             )
         }
 
-        // Tint overlay: dark translucent if artwork is active, pitch black if not
+        // Unified tint overlay: matching the artwork haze with a seamless dark gradient
         Box(
             modifier = Modifier
-                .matchParentSize()
+                .fillMaxSize()
                 .background(
-                    if (hasArtwork) Color(0xFF141414).copy(alpha = 0.84f)
-                    else Color.Black
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF141414).copy(alpha = if (hasArtwork) 0.62f else 0.95f),
+                            Color(0xFF0B0B0B).copy(alpha = if (hasArtwork) 0.85f else 0.98f),
+                        )
+                    )
                 ),
         )
 
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 8.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    .padding(start = 10.dp, end = 6.dp, top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (song != null) {
-                    // Small cover image / default vinyl record window
-                    ArtworkTile(song = song, size = 46.dp, rounded = 8.dp)
+                    // Larger song cover image
+                    ArtworkTile(song = song, size = 50.dp, rounded = 10.dp)
 
-                    // Title & tiny artist text
+                    // Title & artist text
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -263,7 +270,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             maxLines = 1,
                             modifier = Modifier.basicMarquee(),
                         )
-                        Spacer(Modifier.height(1.dp))
+                        Spacer(Modifier.height(2.dp))
                         Text(
                             text = song.artist.orUnknown(),
                             style = MaterialTheme.typography.bodySmall.copy(
@@ -275,7 +282,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                         )
                     }
 
-                    // 3 Main buttons: Previous, Play/Pause, Next + Shuffle toggle button
+                    // Main playback buttons
                     var shuffleEnabled by remember { mutableStateOf(controller?.shuffleModeEnabled ?: false) }
                     LaunchedEffect(controller) {
                         shuffleEnabled = controller?.shuffleModeEnabled ?: false
@@ -283,35 +290,35 @@ fun MiniPlayerBar(onClick: () -> Unit) {
 
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(38.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.SkipPrevious,
                             contentDescription = "Previous",
                             tint = TideColors.textPrimary,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.togglePlayPause() },
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(44.dp),
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = TideColors.accent,
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(32.dp),
                         )
                     }
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.next() },
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(38.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.SkipNext,
                             contentDescription = "Next",
                             tint = TideColors.textPrimary,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                     IconButton(
@@ -332,27 +339,25 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(TideColors.outline),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.QueueMusic, null, tint = TideColors.textSecondary, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Rounded.QueueMusic, null, tint = TideColors.textSecondary, modifier = Modifier.size(26.dp))
                     }
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 12.dp),
                     ) {
                         Text("Not Playing", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp), color = TideColors.textPrimary)
                         Text("Tap to open player", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = TideColors.textSecondary)
                     }
-                    // No play button here: with an empty queue there is nothing to play —
-                    // a decorative dead button only misleads (removed).
                 }
             }
 
-            // Interactive timeline seek bar with expanding knob & glowing halo
+            // Interactive timeline seek bar: raised higher with comfortable 20dp touch height
             if (song != null && duration > 0f) {
                 var isDraggingTimeline by remember { mutableStateOf(false) }
                 var dragFraction by remember { mutableFloatStateOf(0f) }
@@ -360,7 +365,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 val displayFraction = if (isDraggingTimeline) dragFraction else currentFraction
 
                 val trackHeight by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 3.5.dp else 2.5.dp,
+                    targetValue = if (isDraggingTimeline) 4.dp else 2.5.dp,
                     label = "miniTrackHeight",
                 )
                 val knobSize by animateDpAsState(
@@ -371,8 +376,8 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(18.dp)
-                        .padding(horizontal = 14.dp)
+                        .height(20.dp)
+                        .padding(horizontal = 12.dp, vertical = 2.dp)
                         .pointerInput(duration) {
                             detectTapGestures(
                                 onPress = { offset ->
@@ -415,7 +420,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             .fillMaxWidth()
                             .height(trackHeight)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.20f)),
+                            .background(Color.White.copy(alpha = 0.22f)),
                     )
 
                     // Active elapsed track line
@@ -461,6 +466,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                         )
                     }
                 }
+            } else {
                 Spacer(Modifier.height(4.dp))
             }
         }

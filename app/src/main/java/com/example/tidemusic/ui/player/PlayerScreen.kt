@@ -1503,14 +1503,13 @@ fun LyricsCanvasView(
 ) {
     var lyrics by remember(song.id) { mutableStateOf<SongLyrics?>(null) }
     var isLoading by remember(song.id) { mutableStateOf(true) }
-    val autoScrollEnabled by com.example.tidemusic.di.ServiceLocator.settingsManager.isLyricsAutoScrollEnabled.collectAsState()
-    var userScrolledManually by remember(song.id) { mutableStateOf(false) }
+    var isAutoScroll by remember(song.id) { mutableStateOf(true) }
 
     LaunchedEffect(song.id) {
         isLoading = true
         lyrics = LyricsHelper.loadLyrics(song)
         isLoading = false
-        userScrolledManually = false
+        isAutoScroll = true
     }
 
     Box(
@@ -1562,20 +1561,22 @@ fun LyricsCanvasView(
                 if (idx >= 0) idx else 0
             }
 
-            // Detect user manual scroll gesture
+            // User manual intervention detection: dragging/scrolling switches to manual mode
             LaunchedEffect(listState.isScrollInProgress) {
-                if (listState.isScrollInProgress) {
-                    userScrolledManually = true
+                if (listState.isScrollInProgress && isAutoScroll) {
+                    isAutoScroll = false
                 }
             }
 
-            // Auto-scroll centered to current active lyric if in auto-scroll mode and not manually scrolled away
-            LaunchedEffect(activeIndex, autoScrollEnabled, userScrolledManually) {
-                if (autoScrollEnabled && !userScrolledManually && activeIndex in currentLyrics.lines.indices) {
+            // Auto-scroll centered to current active lyric whenever song progresses or timeline is scrubbed
+            LaunchedEffect(activeIndex, isAutoScroll) {
+                if (isAutoScroll && activeIndex in currentLyrics.lines.indices) {
                     try {
+                        val viewportHeight = listState.layoutInfo.viewportSize.height
+                        val scrollOffset = if (viewportHeight > 0) -(viewportHeight / 3) else -120
                         listState.animateScrollToItem(
                             index = activeIndex,
-                            scrollOffset = -100,
+                            scrollOffset = scrollOffset,
                         )
                     } catch (_: Exception) {}
                 }
@@ -1585,24 +1586,20 @@ fun LyricsCanvasView(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 36.dp, bottom = 48.dp),
+                    contentPadding = PaddingValues(top = 40.dp, bottom = 48.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     itemsIndexed(currentLyrics.lines, key = { index, item -> "${index}_${item.timestampMs}" }) { index, line ->
                         val isActive = index == activeIndex
                         val textColor by androidx.compose.animation.animateColorAsState(
-                            targetValue = if (autoScrollEnabled) {
-                                if (isActive) Color.White else Color.White.copy(alpha = 0.38f)
-                            } else {
-                                Color.White.copy(alpha = 0.88f)
-                            },
+                            targetValue = if (isActive) Color.White else Color.White.copy(alpha = 0.35f),
                             animationSpec = tween(durationMillis = 280),
                             label = "lyricColor"
                         )
 
                         Text(
                             text = line.text,
-                            style = if (autoScrollEnabled && isActive) {
+                            style = if (isActive) {
                                 MaterialTheme.typography.titleMedium.copy(
                                     fontSize = 19.sp,
                                     fontWeight = FontWeight.Bold,
@@ -1611,7 +1608,7 @@ fun LyricsCanvasView(
                             } else {
                                 MaterialTheme.typography.bodyMedium.copy(
                                     fontSize = 15.sp,
-                                    fontWeight = if (autoScrollEnabled) FontWeight.Medium else FontWeight.Normal,
+                                    fontWeight = FontWeight.Medium,
                                     lineHeight = 22.sp,
                                 )
                             },
@@ -1619,9 +1616,8 @@ fun LyricsCanvasView(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (autoScrollEnabled) {
-                                        onSeek(line.timestampMs)
-                                    }
+                                    onSeek(line.timestampMs)
+                                    isAutoScroll = true
                                 }
                                 .padding(vertical = 4.dp, horizontal = 8.dp),
                             textAlign = TextAlign.Center,
@@ -1629,57 +1625,32 @@ fun LyricsCanvasView(
                     }
                 }
 
-                // Top mode switch pill: [Auto-Scroll | Manual]
+                // Single toggle action button:
+                // When in Auto mode -> Shows "Manual" (clicking it enters Manual mode)
+                // When in Manual mode -> Shows "Auto-Scroll" (clicking it enters Auto mode)
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.14f))
+                        .background(if (isAutoScroll) TideColors.accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.16f))
                         .clickable {
-                            val next = !autoScrollEnabled
-                            com.example.tidemusic.di.ServiceLocator.settingsManager.setLyricsAutoScrollEnabled(next)
-                            userScrolledManually = false
+                            isAutoScroll = !isAutoScroll
                         }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        imageVector = if (autoScrollEnabled) Icons.Rounded.Autorenew else Icons.AutoMirrored.Rounded.FormatAlignLeft,
+                        imageVector = if (isAutoScroll) Icons.AutoMirrored.Rounded.FormatAlignLeft else Icons.Rounded.Autorenew,
                         contentDescription = null,
-                        tint = if (autoScrollEnabled) TideColors.accent else TideColors.textSecondary,
-                        modifier = Modifier.size(13.dp),
+                        tint = if (isAutoScroll) TideColors.accent else Color.White,
+                        modifier = Modifier.size(14.dp),
                     )
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(5.dp))
                     Text(
-                        text = if (autoScrollEnabled) "Auto-Scroll" else "Manual",
+                        text = if (isAutoScroll) "Manual" else "Auto-Scroll",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                        color = if (autoScrollEnabled) TideColors.accent else TideColors.textSecondary,
+                        color = if (isAutoScroll) TideColors.accent else Color.White,
                     )
-                }
-
-                // Resume Auto-Scroll floating chip if user manually scrolled away
-                if (autoScrollEnabled && userScrolledManually) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 6.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(TideColors.accent)
-                            .clickable {
-                                userScrolledManually = false
-                            }
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "Resume Auto-Scroll",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            color = Color.Black,
-                        )
-                    }
                 }
             }
         } else {

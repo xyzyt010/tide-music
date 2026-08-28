@@ -71,13 +71,16 @@ class MainActivity : ComponentActivity() {
                 var showGuide by remember {
                     mutableStateOf(!hasCompletedOnboarding && !hasAllPermissions())
                 }
-                var isAppReady by remember { mutableStateOf(false) }
+                val scanProgress by ServiceLocator.repository.scanProgress.collectAsState()
+                var initialDelayDone by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     // Allow UI hierarchy and database indices to finish initializing smoothly
                     delay(700L)
-                    isAppReady = true
+                    initialDelayDone = true
                 }
+
+                val isStagingComplete = initialDelayDone && !scanProgress.isScanning
 
                 // Connect to the MediaSessionService once for the app's lifetime.
                 DisposableEffect(Unit) {
@@ -89,14 +92,14 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         AppShell(initialDeepLink = initialDeepLink)
 
-                        // Subtle initial loading screen with running blue line beam
+                        // Staging & loading screen with running blue line and live track count
                         AnimatedVisibility(
-                            visible = !isAppReady,
+                            visible = !isStagingComplete,
                             enter = fadeIn(tween(100)),
                             exit = fadeOut(tween(450)),
                             modifier = Modifier.fillMaxSize().zIndex(99f),
                         ) {
-                            AppLoadingScreen()
+                            AppLoadingScreen(scanProgress = scanProgress)
                         }
 
                         if (showGuide) {
