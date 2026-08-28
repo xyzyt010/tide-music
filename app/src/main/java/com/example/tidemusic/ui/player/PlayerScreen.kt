@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -369,17 +370,16 @@ fun PlayerScreen(
         )
     }
     var hasArtwork by remember(s.id) { mutableStateOf(false) }
+    val isDarkMode by ServiceLocator.settingsManager.isDarkMode.collectAsState()
     val glassEnabled by ServiceLocator.settingsManager.isGlassEffectsEnabled.collectAsState()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clipToBounds()
-            .background(androidx.compose.ui.graphics.Color.Black),
+            .background(TideColors.background),
     ) {
-        // 1. Frosted glass blurred background if song has image.
-        //    Strong blur radius per design request; overscanned via graphicsLayer scale so
-        //    the blurred backdrop never shows hard edges / dark fringes at the borders.
+        // 1. Frosted glass blurred background if song has image and glassEnabled is true.
         if (glassEnabled) {
             AsyncImage(
                 model = artworkModel,
@@ -398,13 +398,17 @@ fun PlayerScreen(
             )
         }
 
-        // 2. Clean light tint overlay (vibrant, luminous frosted glass, no heavy dark muddy veil)
+        // 2. Tint overlay matching dark or light mode
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (hasArtwork && glassEnabled) androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.28f)
-                    else androidx.compose.ui.graphics.Color.Black
+                    if (hasArtwork && glassEnabled) {
+                        if (isDarkMode) androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f)
+                        else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.35f)
+                    } else {
+                        TideColors.background
+                    }
                 ),
         )
 
@@ -1561,38 +1565,31 @@ fun LyricsCanvasView(
                 if (idx >= 0) idx else 0
             }
 
-            // User manual intervention detection: dragging/scrolling switches to manual mode
-            LaunchedEffect(listState.isScrollInProgress) {
-                if (listState.isScrollInProgress && isAutoScroll) {
-                    isAutoScroll = false
-                }
-            }
-
-            // Auto-scroll centered to current active lyric whenever song progresses or timeline is scrubbed
-            LaunchedEffect(activeIndex, isAutoScroll) {
-                if (isAutoScroll && activeIndex in currentLyrics.lines.indices) {
+            // Auto-scroll to center active lyric whenever song progresses, seek occurs, or user releases touch
+            LaunchedEffect(activeIndex, isAutoScroll, listState.isScrollInProgress) {
+                if (isAutoScroll && !listState.isScrollInProgress && activeIndex in currentLyrics.lines.indices) {
                     try {
-                        val viewportHeight = listState.layoutInfo.viewportSize.height
-                        val scrollOffset = if (viewportHeight > 0) -(viewportHeight / 3) else -120
                         listState.animateScrollToItem(
                             index = activeIndex,
-                            scrollOffset = scrollOffset,
+                            scrollOffset = 0,
                         )
                     } catch (_: Exception) {}
                 }
             }
 
-            Box(Modifier.fillMaxSize()) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val verticalCenterPadding = (maxHeight / 2 - 28.dp).coerceAtLeast(16.dp)
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 40.dp, bottom = 48.dp),
+                    contentPadding = PaddingValues(top = verticalCenterPadding, bottom = verticalCenterPadding),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     itemsIndexed(currentLyrics.lines, key = { index, item -> "${index}_${item.timestampMs}" }) { index, line ->
                         val isActive = index == activeIndex
                         val textColor by androidx.compose.animation.animateColorAsState(
-                            targetValue = if (isActive) Color.White else Color.White.copy(alpha = 0.35f),
+                            targetValue = if (isActive) Color.White else Color.White.copy(alpha = 0.32f),
                             animationSpec = tween(durationMillis = 280),
                             label = "lyricColor"
                         )
@@ -1632,7 +1629,7 @@ fun LyricsCanvasView(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (isAutoScroll) TideColors.accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.16f))
+                        .background(if (isAutoScroll) TideColors.accent.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.16f))
                         .clickable {
                             isAutoScroll = !isAutoScroll
                         }

@@ -48,9 +48,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            // ── Theme ──────────────────────────────────
+            // ── Theme & Appearance ──────────────────────────────────
             Text(
-                "Theme",
+                "Appearance",
                 style = MaterialTheme.typography.titleSmall,
                 color = TideColors.textSecondary,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -58,8 +58,8 @@ fun SettingsScreen(onBack: () -> Unit) {
             val isDarkMode by ServiceLocator.settingsManager.isDarkMode.collectAsState()
             SettingsRow(
                 icon = Icons.Rounded.MusicNote,
-                title = "Dark mode",
-                subtitle = "Use dark theme",
+                title = "Dark theme",
+                subtitle = "Enable dark mode throughout the app",
                 trailing = {
                     Switch(
                         checked = isDarkMode,
@@ -69,22 +69,36 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
 
-            // ── Playback ──────────────────────────────────
+            val glassEnabled by ServiceLocator.settingsManager.isGlassEffectsEnabled.collectAsState()
+            SettingsRow(
+                icon = Icons.Rounded.MusicNote,
+                title = "Player backdrop",
+                subtitle = "Use dynamic song artwork haze instead of solid theme",
+                trailing = {
+                    Switch(
+                        checked = glassEnabled,
+                        onCheckedChange = { ServiceLocator.settingsManager.setGlassEffectsEnabled(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
+                    )
+                },
+            )
+
+            // ── Interface & Playback ──────────────────────────────────
             Text(
-                "Playback",
+                "Interface",
                 style = MaterialTheme.typography.titleSmall,
                 color = TideColors.textSecondary,
                 modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
             )
+            val miniPlayerEnabled by ServiceLocator.settingsManager.isMiniPlayerEnabled.collectAsState()
             SettingsRow(
                 icon = Icons.Rounded.MusicNote,
-                title = "Glass effects",
-                subtitle = "Frosted blur overlays on player and mini-player",
+                title = "Mini player bar",
+                subtitle = "Show floating playback bar above the navigation menu",
                 trailing = {
-                    val glassEnabled by ServiceLocator.settingsManager.isGlassEffectsEnabled.collectAsState()
                     Switch(
-                        checked = glassEnabled,
-                        onCheckedChange = { ServiceLocator.settingsManager.setGlassEffectsEnabled(it) },
+                        checked = miniPlayerEnabled,
+                        onCheckedChange = { ServiceLocator.settingsManager.setMiniPlayerEnabled(it) },
                         colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
                     )
                 },

@@ -35,6 +35,15 @@ class SettingsManager(context: Context) {
         _isLyricsAutoScrollEnabled.value = enabled
     }
 
+    /** Controls whether the floating mini player bar is displayed above the bottom navigation. */
+    private val _isMiniPlayerEnabled = MutableStateFlow(prefs.getBoolean("mini_player_enabled", true))
+    val isMiniPlayerEnabled: StateFlow<Boolean> = _isMiniPlayerEnabled
+
+    fun setMiniPlayerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("mini_player_enabled", enabled).apply()
+        _isMiniPlayerEnabled.value = enabled
+    }
+
     /**
      * Retrieves saved sort criteria for a given playlist (or default screen key).
      * Defaults to A-Z (TITLE_ASC) for all playlists as requested by user.

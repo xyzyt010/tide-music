@@ -196,37 +196,29 @@ fun AppShell(initialDeepLink: String? = null) {
                     Column(
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        if (!isPlayerPage && currentMediaItem != null) {
+                        val miniPlayerEnabledPref by ServiceLocator.settingsManager.isMiniPlayerEnabled.collectAsState()
+                        val hasMiniPlayer = !isPlayerPage && currentMediaItem != null && miniPlayerEnabledPref
+                        if (hasMiniPlayer) {
                             com.example.tidemusic.ui.common.MiniPlayerBar(
                                 onClick = { isPlayerExpanded = true }
                             )
                         }
 
+                        val bottomBarDividerColor = if (isPlayerPage) Color.White.copy(alpha = 0.16f) else TideColors.textSecondary.copy(alpha = 0.18f)
+                        val bottomBarBackground = if (isPlayerPage) Color.Transparent else TideColors.surface.copy(alpha = 0.96f)
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(if (isPlayerPage) Color.Transparent else Color(0xFF0D0D0D).copy(alpha = 0.96f))
+                                .background(bottomBarBackground)
                                 .drawBehind {
-                                    if (!isPlayerPage) {
-                                        // Soft upward translucent shadow gradient
-                                        drawRect(
-                                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                                colors = listOf(
-                                                    Color.Black.copy(alpha = 0.45f),
-                                                    Color.Transparent,
-                                                ),
-                                                startY = 0f,
-                                                endY = 14.dp.toPx(),
-                                            )
-                                        )
-                                        // Thin translucent highlighting division line on top of bottom bar
-                                        drawLine(
-                                            color = Color.White.copy(alpha = 0.18f),
-                                            start = Offset(0f, 0f),
-                                            end = Offset(size.width, 0f),
-                                            strokeWidth = 1.dp.toPx(),
-                                        )
-                                    }
+                                    // Translucent hairline division line: always shown across all pages including Player page
+                                    drawLine(
+                                        color = bottomBarDividerColor,
+                                        start = Offset(0f, 0f),
+                                        end = Offset(size.width, 0f),
+                                        strokeWidth = 1.dp.toPx(),
+                                    )
                                 }
                                 .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.navigationBars)
                         ) {

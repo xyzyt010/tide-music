@@ -65,7 +65,7 @@ class MediaStoreScanner(private val context: Context) {
             projection.add(MediaStore.Audio.Media.DISC_NUMBER)
         }
 
-        val selection: String? = null
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.DURATION} >= 5000"
         val sortOrder = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
         val out = ArrayList<ScannedTrack>()

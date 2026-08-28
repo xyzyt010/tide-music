@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -56,6 +57,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -190,16 +192,21 @@ fun MiniPlayerBar(onClick: () -> Unit) {
         }
     }
     var hasArtwork by remember(song?.id) { mutableStateOf(false) }
+    val glassEnabled by com.example.tidemusic.di.ServiceLocator.settingsManager.isGlassEffectsEnabled.collectAsState()
+    val isDarkMode by com.example.tidemusic.di.ServiceLocator.settingsManager.isDarkMode.collectAsState()
+    val surfaceColor = TideColors.surface
+    val hairlineColor = TideColors.textSecondary.copy(alpha = if (hasArtwork && glassEnabled) 0.16f else 0.12f)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(88.dp)
+            .height(94.dp)
             .padding(0.dp)
-            .background(Color(0xFF0F0F0F))
+            .background(surfaceColor)
             .drawBehind {
-                // Subtle top hairline border
+                // Single subtle top hairline border
                 drawLine(
-                    color = if (hasArtwork) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.12f),
+                    color = hairlineColor,
                     start = Offset(0f, 0f),
                     end = Offset(size.width, 0f),
                     strokeWidth = 1.dp.toPx()
@@ -208,7 +215,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
             .clickable(onClick = onClick),
     ) {
         // Frosted glass blurred background of song artwork filling the entire surface
-        if (artworkModel != null) {
+        if (artworkModel != null && glassEnabled) {
             AsyncImage(
                 model = artworkModel,
                 contentDescription = null,
@@ -218,7 +225,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                         scaleX = 1.45f
                         scaleY = 1.45f
                     }
-                    .blur(45.dp),
+                    .blur(50.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 onState = { state ->
                     hasArtwork = state is coil3.compose.AsyncImagePainter.State.Success
@@ -226,33 +233,48 @@ fun MiniPlayerBar(onClick: () -> Unit) {
             )
         }
 
-        // Unified tint overlay: matching the artwork haze with a seamless dark gradient
+        // Unified tint overlay: matching the artwork haze with a seamless dark/light gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF141414).copy(alpha = if (hasArtwork) 0.62f else 0.95f),
-                            Color(0xFF0B0B0B).copy(alpha = if (hasArtwork) 0.85f else 0.98f),
-                        )
-                    )
+                    if (hasArtwork && glassEnabled) {
+                        if (isDarkMode) {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xFF141414).copy(alpha = 0.65f),
+                                    Color(0xFF0A0A0A).copy(alpha = 0.88f),
+                                )
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xFFFFFFFF).copy(alpha = 0.72f),
+                                    Color(0xFFF5F5F5).copy(alpha = 0.90f),
+                                )
+                            )
+                        }
+                    } else {
+                        androidx.compose.ui.graphics.SolidColor(TideColors.surface)
+                    }
                 ),
         )
 
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 6.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 10.dp, end = 6.dp, top = 8.dp),
+                    .padding(start = 12.dp, end = 8.dp, top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (song != null) {
                     // Larger song cover image
-                    ArtworkTile(song = song, size = 50.dp, rounded = 10.dp)
+                    ArtworkTile(song = song, size = 48.dp, rounded = 10.dp)
 
                     // Title & artist text
                     Column(
@@ -339,7 +361,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(48.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(TideColors.outline),
                         contentAlignment = Alignment.Center,
@@ -357,7 +379,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 }
             }
 
-            // Interactive timeline seek bar: raised higher with comfortable 20dp touch height
+            // Interactive timeline seek bar: raised higher with comfortable 26dp touch area and perfectly round knob
             if (song != null && duration > 0f) {
                 var isDraggingTimeline by remember { mutableStateOf(false) }
                 var dragFraction by remember { mutableFloatStateOf(0f) }
@@ -365,19 +387,19 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 val displayFraction = if (isDraggingTimeline) dragFraction else currentFraction
 
                 val trackHeight by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 4.dp else 2.5.dp,
+                    targetValue = if (isDraggingTimeline) 5.dp else 4.dp,
                     label = "miniTrackHeight",
                 )
                 val knobSize by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 14.dp else 8.dp,
+                    targetValue = if (isDraggingTimeline) 16.dp else 12.dp,
                     label = "miniKnobSize",
                 )
 
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(20.dp)
-                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                        .height(26.dp)
+                        .padding(horizontal = 14.dp)
                         .pointerInput(duration) {
                             detectTapGestures(
                                 onPress = { offset ->
@@ -414,13 +436,16 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                         },
                     contentAlignment = Alignment.CenterStart,
                 ) {
+                    val totalWidth = maxWidth
+
                     // Inactive background track line
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(trackHeight)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.22f)),
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color.White.copy(alpha = 0.20f))
+                            .align(Alignment.CenterStart),
                     )
 
                     // Active elapsed track line
@@ -428,41 +453,34 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth(displayFraction)
                             .height(trackHeight)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(TideColors.accent),
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(TideColors.accent)
+                            .align(Alignment.CenterStart),
                     )
 
-                    // Expanding round knob + glowing halo
+                    // Truly round thumb knob (placed with absolute offset, never squeezed at 0% or 100%)
+                    val knobX = ((totalWidth - knobSize) * displayFraction).coerceAtLeast(0.dp)
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(displayFraction)
-                            .wrapContentWidth(Alignment.End),
+                            .offset(x = knobX)
+                            .size(knobSize)
+                            .align(Alignment.CenterStart),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isDraggingTimeline) {
-                            // Outer glowing shadow aura
                             Box(
                                 modifier = Modifier
-                                    .offset(x = (knobSize + 10.dp) / 2)
-                                    .size(knobSize + 10.dp)
+                                    .size(knobSize + 8.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF2979FF).copy(alpha = 0.35f)),
-                            )
-                            // Inner subtle glow
-                            Box(
-                                modifier = Modifier
-                                    .offset(x = (knobSize + 6.dp) / 2)
-                                    .size(knobSize + 6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.30f)),
+                                    .background(Color(0xFF00E5FF).copy(alpha = 0.35f)),
                             )
                         }
                         Box(
                             modifier = Modifier
-                                .offset(x = knobSize / 2)
-                                .size(knobSize)
+                                .fillMaxSize()
                                 .clip(CircleShape)
-                                .background(Color.White),
+                                .background(Color.White)
+                                .border(1.5.dp, TideColors.accent, CircleShape),
                         )
                     }
                 }

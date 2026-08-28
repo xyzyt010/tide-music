@@ -16,7 +16,7 @@ class RawFileScanner {
 
     private val ignoredDirNames = setOf(
         "android", "cache", "thumbnails", "obb", "system", ".trash", "lost.dir",
-        ".cache", ".temp", ".thumbnails", ".data"
+        ".cache", ".temp", ".thumbnails", ".data", "dcim", "pictures", "movies", "camera"
     )
 
     suspend fun scan(
@@ -27,28 +27,18 @@ class RawFileScanner {
         val out = mutableListOf<MediaStoreScanner.ScannedTrack>()
         val supportedExtensions = setOf("mp3", "m4a", "flac", "wav", "aac", "ogg", "opus")
 
-        // Priority audio folders first, then general top-level user directories (without duplicate recursion)
+        // Priority audio folders only
         val candidateDirs = mutableListOf<File>()
-        listOf("Music", "Download", "Podcasts", "Audiobooks", "TideMusic", "DCIM", "Documents", "Ringtones").forEach {
+        listOf("Music", "Download", "TideMusic", "Audiobooks", "Podcasts").forEach {
             val f = File(root, it)
             if (f.exists() && f.isDirectory) candidateDirs.add(f)
-        }
-
-        // Add any other user folder in root (excluding system/ignored directories)
-        root.listFiles()?.forEach { f ->
-            if (f.isDirectory && !candidateDirs.contains(f)) {
-                val name = f.name.lowercase()
-                if (!name.startsWith(".") && name !in ignoredDirNames) {
-                    candidateDirs.add(f)
-                }
-            }
         }
 
         val visitedDirs = HashSet<String>()
         val scannedPaths = HashSet<String>(knownPaths)
 
         fun walk(dir: File, depth: Int = 0) {
-            if (depth > 5) return
+            if (depth > 4) return
             val canonicalPath = try { dir.canonicalPath } catch (_: Exception) { dir.absolutePath }
             if (!visitedDirs.add(canonicalPath)) return
 
