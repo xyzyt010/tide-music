@@ -16,7 +16,7 @@ android {
         versionName = "1.0"
         // youtubedl-android bundles native binaries; restrict to arm64-v8a and armeabi-v7a for ARM devices to keep APK size optimized.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
     }
 

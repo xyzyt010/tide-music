@@ -30,8 +30,12 @@ object ConnectionHolder {
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         future = MediaController.Builder(context, token).buildAsync().also { f ->
             f.addListener({
-                _connected.value = f.get()
-            }, Runnable::run)
+                try {
+                    _connected.value = f.get()
+                } catch (e: Throwable) {
+                    android.util.Log.e("ConnectionHolder", "Failed to get MediaController", e)
+                }
+            }, androidx.core.content.ContextCompat.getMainExecutor(context))
         }
     }
 

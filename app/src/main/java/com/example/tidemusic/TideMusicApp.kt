@@ -58,17 +58,17 @@ class TideMusicApp : Application(), SingletonImageLoader.Factory {
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     YoutubeDL.getInstance().updateYoutubeDL(this@TideMusicApp, YoutubeDL.UpdateChannel.NIGHTLY)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e(TAG, "yt-dlp update failed", e)
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
              Log.e(TAG, "yt-dlp init failed", e)
         }
 
         try {
             FFmpeg.getInstance().init(this)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "ffmpeg init failed", e)
         }
 
@@ -80,7 +80,7 @@ class TideMusicApp : Application(), SingletonImageLoader.Factory {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 ServiceLocator.repository.ensureYtDlpPlaylist()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Failed to ensure yt-dlp playlist", e)
             }
         }

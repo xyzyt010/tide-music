@@ -18,7 +18,7 @@ internal object DatabaseModule {
 
     fun provideDatabase(context: Context): TideMusicDatabase =
         Room.databaseBuilder(context, TideMusicDatabase::class.java, TideMusicDatabase.NAME)
-            .fallbackToDestructiveMigration(false)
+            .fallbackToDestructiveMigration(true)
             .build()
 
     fun songDao(db: TideMusicDatabase): SongDao = db.songDao()

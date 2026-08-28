@@ -41,6 +41,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        ServiceLocator.init(this)
         // Set JVM-level IPv4 preference here too so any auxiliary lookup (eg. artwork fetch
         // in MediaMetadata) stays on IPv4 alongside the yt-dlp downloader (spec Section 6.6).
         // NOTE: the downloader hardcodes --force-ipv4 unconditionally. This is intentional.
@@ -187,40 +188,48 @@ class PlaybackService : MediaSessionService() {
     @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
     private fun restoreState() {
         GlobalScope.launch(Dispatchers.IO) {
-            val prefs = getSharedPreferences("playback_state", android.content.Context.MODE_PRIVATE)
-            val savedIds = prefs.getString("queue_ids", "") ?: ""
-            if (savedIds.isNotBlank()) {
-                val ids = savedIds.split(",").mapNotNull { it.toLongOrNull() }
-                val allSongs = ServiceLocator.repository.observeAllSongs().first().associateBy { it.id }
-                val queueSongs = ids.mapNotNull { allSongs[it] }
-                val savedIndex = prefs.getInt("queue_index", 0)
-                val savedPosition = prefs.getLong("queue_position", 0L)
-                
-                withContext(Dispatchers.Main) {
-                    val mediaItems = queueSongs.map { playbackController.mediaItemFor(it) }
-                    if (mediaItems.isNotEmpty()) {
-                        player?.setMediaItems(mediaItems, savedIndex.coerceIn(0, mediaItems.lastIndex), savedPosition)
-                        player?.prepare()
+            try {
+                val prefs = getSharedPreferences("playback_state", android.content.Context.MODE_PRIVATE)
+                val savedIds = prefs.getString("queue_ids", "") ?: ""
+                if (savedIds.isNotBlank()) {
+                    val ids = savedIds.split(",").mapNotNull { it.toLongOrNull() }
+                    val allSongs = ServiceLocator.repository.observeAllSongs().first().associateBy { it.id }
+                    val queueSongs = ids.mapNotNull { allSongs[it] }
+                    val savedIndex = prefs.getInt("queue_index", 0)
+                    val savedPosition = prefs.getLong("queue_position", 0L)
+                    
+                    withContext(Dispatchers.Main) {
+                        val mediaItems = queueSongs.map { playbackController.mediaItemFor(it) }
+                        if (mediaItems.isNotEmpty()) {
+                            player?.setMediaItems(mediaItems, savedIndex.coerceIn(0, mediaItems.lastIndex), savedPosition)
+                            player?.prepare()
+                        }
                     }
                 }
+            } catch (e: Throwable) {
+                android.util.Log.e("PlaybackService", "Error restoring state", e)
             }
         }
     }
 
     private fun saveState() {
-        val p = player ?: return
-        val count = p.mediaItemCount
-        val ids = mutableListOf<Long>()
-        for (i in 0 until count) {
-            val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
-            if (id != null) ids.add(id)
+        try {
+            val p = player ?: return
+            val count = p.mediaItemCount
+            val ids = mutableListOf<Long>()
+            for (i in 0 until count) {
+                val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
+                if (id != null) ids.add(id)
+            }
+            val prefs = getSharedPreferences("playback_state", android.content.Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("queue_ids", ids.joinToString(","))
+                .putInt("queue_index", p.currentMediaItemIndex)
+                .putLong("queue_position", p.currentPosition)
+                .apply()
+        } catch (e: Throwable) {
+            android.util.Log.e("PlaybackService", "Error saving state", e)
         }
-        val prefs = getSharedPreferences("playback_state", android.content.Context.MODE_PRIVATE)
-        prefs.edit()
-            .putString("queue_ids", ids.joinToString(","))
-            .putInt("queue_index", p.currentMediaItemIndex)
-            .putLong("queue_position", p.currentPosition)
-            .apply()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
