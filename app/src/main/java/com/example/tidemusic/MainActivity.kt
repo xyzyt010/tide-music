@@ -46,9 +46,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
         checkManageAllFilesPermission()
-        val hasCompletedInitialScan = getSharedPreferences("app_settings", MODE_PRIVATE)
-            .getBoolean("has_completed_initial_scan", false)
-        triggerLibraryScan(isInitial = !hasCompletedInitialScan)
+        triggerLibraryScan()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,7 +64,6 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         val hasCompletedOnboarding = prefs.getBoolean("has_completed_onboarding", false)
-        val hasCompletedInitialScan = prefs.getBoolean("has_completed_initial_scan", false)
 
         setContent {
             TideMusicTheme {
@@ -74,21 +71,12 @@ class MainActivity : ComponentActivity() {
                 var showGuide by remember {
                     mutableStateOf(!hasCompletedOnboarding && !hasAllPermissions())
                 }
-                var isInitialSetup by remember { mutableStateOf(!hasCompletedInitialScan) }
-                val scanProgress by ServiceLocator.repository.scanProgress.collectAsState()
-                var initialDelayDone by remember { mutableStateOf(false) }
+                var splashVisible by remember { mutableStateOf(true) }
 
                 LaunchedEffect(Unit) {
-                    // Allow UI hierarchy and database indices to finish initializing smoothly
-                    delay(450L)
-                    initialDelayDone = true
-                }
-
-                // If it's initial setup, wait until full scan completes. Otherwise, only brief delay.
-                val isStagingComplete = if (isInitialSetup) {
-                    initialDelayDone && !scanProgress.isScanning && hasCompletedInitialScan
-                } else {
-                    initialDelayDone
+                    // Ultra-fast smooth splash transition (300ms)
+                    delay(300L)
+                    splashVisible = false
                 }
 
                 // Connect to the MediaSessionService once for the app's lifetime.
@@ -101,14 +89,14 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         AppShell(initialDeepLink = initialDeepLink)
 
-                        // Loading screen: shows live staging text on 1st setup, clean minimal blue beam thereafter
+                        // Smooth splash overlay with running blue beam that dissolves immediately
                         AnimatedVisibility(
-                            visible = !isStagingComplete,
-                            enter = fadeIn(tween(100)),
-                            exit = fadeOut(tween(350)),
+                            visible = splashVisible,
+                            enter = fadeIn(tween(80)),
+                            exit = fadeOut(tween(250)),
                             modifier = Modifier.fillMaxSize().zIndex(99f),
                         ) {
-                            AppLoadingScreen(scanProgress = if (isInitialSetup) scanProgress else null)
+                            AppLoadingScreen()
                         }
 
                         if (showGuide) {
@@ -130,16 +118,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Background preload: full scan if initial setup, incremental diff otherwise
-        triggerLibraryScan(isInitial = !hasCompletedInitialScan)
+        // Background non-blocking library scan
+        triggerLibraryScan()
     }
 
     override fun onResume() {
         super.onResume()
         if (hasAllPermissions()) {
-            val hasCompletedInitialScan = getSharedPreferences("app_settings", MODE_PRIVATE)
-                .getBoolean("has_completed_initial_scan", false)
-            triggerLibraryScan(isInitial = !hasCompletedInitialScan)
+            triggerLibraryScan()
         }
     }
 
@@ -198,26 +184,18 @@ class MainActivity : ComponentActivity() {
             permissionLauncher.launch(perms.toTypedArray())
         } else {
             checkManageAllFilesPermission()
-            val hasCompletedInitialScan = getSharedPreferences("app_settings", MODE_PRIVATE)
-                .getBoolean("has_completed_initial_scan", false)
-            triggerLibraryScan(isInitial = !hasCompletedInitialScan)
+            triggerLibraryScan()
         }
     }
 
     /**
-     * Triggers library scan: full rebuild on first setup, incremental diff on subsequent launches.
+     * Triggers asynchronous library scan in the background.
      */
-    private fun triggerLibraryScan(isInitial: Boolean = false) {
+    private fun triggerLibraryScan() {
         val repository = ServiceLocator.repository
-        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         activityScope.launch {
             try {
-                if (isInitial) {
-                    repository.rescanFull()
-                    prefs.edit().putBoolean("has_completed_initial_scan", true).apply()
-                } else {
-                    repository.rescanIncremental()
-                }
+                repository.rescanFull()
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Library scan failed", e)
             }

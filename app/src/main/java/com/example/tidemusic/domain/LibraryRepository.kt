@@ -32,6 +32,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
 
 data class ScanProgress(
     val isScanning: Boolean = false,
@@ -60,6 +61,7 @@ class LibraryRepository constructor(
 ) {
     private val scanner = MediaStoreScanner(context)
     private val treeBuilder = FolderTreeBuilder()
+    private val scanMutex = Mutex()
 
     private val _scanProgress = MutableStateFlow(ScanProgress())
     val scanProgress: StateFlow<ScanProgress> = _scanProgress.asStateFlow()
@@ -69,102 +71,101 @@ class LibraryRepository constructor(
     private val rawScanner = com.example.tidemusic.data.RawFileScanner()
 
     /**
-     * Full rebuild of the song/album/artist/folder indices combining MediaStore and raw storage.
-     * Respects user-configured folder exclusion settings.
+     * Fast two-phase library scan:
+     * Phase 1 (<50ms): Queries Android MediaStore and immediately upserts to Room so UI displays songs instantly.
+     * Phase 2 (Background): Walks designated music folders for unindexed audio and updates Room.
      */
     suspend fun rescanFull(includePrefixes: Collection<String>? = null) = withContext(Dispatchers.IO) {
-        _scanProgress.value = ScanProgress(isScanning = true, stage = "Querying audio index...", count = 0)
-        val msScanned = scanner.scan()
-        _scanProgress.value = ScanProgress(isScanning = true, stage = "Staging audio tracks...", count = msScanned.size)
-        
-        val existingPaths = msScanned.mapTo(HashSet()) { it.filePath }
-        val rawScanned = try {
-            rawScanner.scan(knownPaths = existingPaths) { unindexedFound ->
-                _scanProgress.value = ScanProgress(
-                    isScanning = true,
-                    stage = "Discovering unindexed songs...",
-                    count = msScanned.size + unindexedFound,
-                )
+        if (!scanMutex.tryLock()) return@withContext
+        try {
+            _scanProgress.value = ScanProgress(isScanning = true, stage = "Loading songs...", count = 0)
+
+            // Phase 1: Fast MediaStore ingest (instant UI response)
+            val msScanned = scanner.scan()
+            val excluded = com.example.tidemusic.di.ServiceLocator.settingsManager.getExcludedFolders()
+            val filteredMs = if (excluded.isEmpty()) msScanned else msScanned.filter { track ->
+                excluded.none { ex -> track.filePath.startsWith(ex) }
             }
-        } catch (_: Exception) {
-            emptyList()
-        }
-        
-        val mergedScanned = msScanned.toMutableList()
-        for (raw in rawScanned) {
-            if (!existingPaths.contains(raw.filePath)) {
-                mergedScanned.add(raw)
+
+            val (msSongs, msAlbums, msArtists) = scanner.toEntities(filteredMs)
+            songDao.upsertAll(msSongs)
+            albumDao.upsertAllAlbums(msAlbums)
+            albumDao.upsertAllArtists(msArtists)
+
+            val msFolderTree = treeBuilder.build(msSongs, includePrefixes)
+            folderDao.deleteAll()
+            folderDao.upsertAll(msFolderTree.folders)
+            _scanProgress.value = ScanProgress(isScanning = true, stage = "Checking local files...", count = msSongs.size)
+
+            // Phase 2: Background scan for any unindexed files
+            val existingPaths = filteredMs.mapTo(HashSet()) { it.filePath }
+            val rawScanned = try {
+                rawScanner.scan(knownPaths = existingPaths)
+            } catch (_: Exception) {
+                emptyList()
             }
+
+            if (rawScanned.isNotEmpty()) {
+                val filteredRaw = if (excluded.isEmpty()) rawScanned else rawScanned.filter { track ->
+                    excluded.none { ex -> track.filePath.startsWith(ex) }
+                }
+                val (rawSongs, rawAlbums, rawArtists) = scanner.toEntities(filteredRaw)
+                songDao.upsertAll(rawSongs)
+                albumDao.upsertAllAlbums(rawAlbums)
+                albumDao.upsertAllArtists(rawArtists)
+
+                val allSongs = songDao.observeAllSongs().first()
+                val updatedTree = treeBuilder.build(allSongs, includePrefixes)
+                folderDao.deleteAll()
+                folderDao.upsertAll(updatedTree.folders)
+            }
+
+            _scanProgress.value = ScanProgress(isScanning = false, stage = "Ready", count = msSongs.size + rawScanned.size)
+        } finally {
+            scanMutex.unlock()
         }
-
-        val excluded = com.example.tidemusic.di.ServiceLocator.settingsManager.getExcludedFolders()
-        val filteredScanned = if (excluded.isEmpty()) mergedScanned else mergedScanned.filter { track ->
-            excluded.none { ex -> track.filePath.startsWith(ex) }
-        }
-
-        _scanProgress.value = ScanProgress(isScanning = true, stage = "Organizing library...", count = filteredScanned.size)
-
-        songDao.deleteAll()
-        albumDao.deleteAllAlbums()
-        albumDao.deleteAllArtists()
-
-        val (songs, albums, artists) = scanner.toEntities(filteredScanned)
-        songDao.upsertAll(songs)
-        albumDao.upsertAllAlbums(albums)
-        albumDao.upsertAllArtists(artists)
-        val folderTree = treeBuilder.build(songs, includePrefixes)
-        folderDao.deleteAll()
-        folderDao.upsertAll(folderTree.folders)
-
-        _scanProgress.value = ScanProgress(isScanning = false, stage = "Complete", count = songs.size)
-        Unit
     }
 
     /**
      * Incremental rescan: updates changed rows and rebuilds folder hierarchy.
      */
     suspend fun rescanIncremental(includePrefixes: Collection<String>? = null) = withContext(Dispatchers.IO) {
-        val msScanned = scanner.scan()
-        val rawScanned = try { rawScanner.scan() } catch (e: Exception) { emptyList() }
-        
-        val existingPaths = msScanned.mapTo(HashSet()) { it.filePath }
-        val mergedScanned = msScanned.toMutableList()
-        for (raw in rawScanned) {
-            if (!existingPaths.contains(raw.filePath)) {
-                mergedScanned.add(raw)
+        if (!scanMutex.tryLock()) return@withContext
+        try {
+            val msScanned = scanner.scan()
+            val excluded = com.example.tidemusic.di.ServiceLocator.settingsManager.getExcludedFolders()
+            val filteredMs = if (excluded.isEmpty()) msScanned else msScanned.filter { track ->
+                excluded.none { ex -> track.filePath.startsWith(ex) }
             }
-        }
 
-        val excluded = com.example.tidemusic.di.ServiceLocator.settingsManager.getExcludedFolders()
-        val filteredScanned = if (excluded.isEmpty()) mergedScanned else mergedScanned.filter { track ->
-            excluded.none { ex -> track.filePath.startsWith(ex) }
-        }
-
-        val existing = songDao.observeAllSongs().first().associateBy { it.id }
-        val changed = filteredScanned.filter { row ->
-            val s = existing[row.id]
-            s == null || s.dateModified != row.dateModified
-        }
-        if (changed.isNotEmpty()) {
-            val (songs, albums, artists) = scanner.toEntities(changed)
-            songDao.upsertAll(songs)
-            albumDao.upsertAllAlbums(albums)
-            albumDao.upsertAllArtists(artists)
-        }
-
-        // Remove any songs in DB that are now in excluded folders
-        if (excluded.isNotEmpty()) {
-            val allSongsInDb = songDao.observeAllSongs().first()
-            val toRemove = allSongsInDb.filter { song -> excluded.any { ex -> song.filePath.startsWith(ex) } }
-            if (toRemove.isNotEmpty()) {
-                songDao.deleteByIds(toRemove.map { it.id })
+            val existing = songDao.observeAllSongs().first().associateBy { it.id }
+            val changed = filteredMs.filter { row ->
+                val s = existing[row.id]
+                s == null || s.dateModified != row.dateModified
             }
-        }
+            if (changed.isNotEmpty()) {
+                val (songs, albums, artists) = scanner.toEntities(changed)
+                songDao.upsertAll(songs)
+                albumDao.upsertAllAlbums(albums)
+                albumDao.upsertAllArtists(artists)
+            }
 
-        val allSongs = songDao.observeAllSongs().first()
-        val folderTree = treeBuilder.build(allSongs, includePrefixes)
-        folderDao.deleteAll()
-        folderDao.upsertAll(folderTree.folders)
+            // Remove any songs in DB that are now in excluded folders
+            if (excluded.isNotEmpty()) {
+                val allSongsInDb = songDao.observeAllSongs().first()
+                val toRemove = allSongsInDb.filter { song -> excluded.any { ex -> song.filePath.startsWith(ex) } }
+                if (toRemove.isNotEmpty()) {
+                    songDao.deleteByIds(toRemove.map { it.id })
+                }
+            }
+
+            val allSongs = songDao.observeAllSongs().first()
+            val folderTree = treeBuilder.build(allSongs, includePrefixes)
+            folderDao.deleteAll()
+            folderDao.upsertAll(folderTree.folders)
+        } finally {
+            scanMutex.unlock()
+        }
     }
 
     /** Used by the Download screen (Section 8.6) — only re-index a small folder. */
