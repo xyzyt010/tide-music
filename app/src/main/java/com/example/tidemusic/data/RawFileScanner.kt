@@ -69,7 +69,7 @@ class RawFileScanner {
 
                             var title = file.nameWithoutExtension.ifBlank { "Unknown" }
                             var artist = "Unknown"
-                            var album = folderName
+                            var album = ""
                             var albumArtist: String? = null
                             var durationMs = 0L
                             var bitrate = 0
@@ -88,10 +88,6 @@ class RawFileScanner {
                                     val isGenAlb = isGenericOrInvalidAlbum(alb)
                                     if (!alb.isNullOrBlank() && !isGenAlb) {
                                         album = alb.trim()
-                                    } else if (folderName.isNotBlank() && !isGenericOrInvalidAlbum(folderName)) {
-                                        album = folderName
-                                    } else {
-                                        album = title.ifBlank { "Unknown" }
                                     }
                                     val aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
                                     if (!aa.isNullOrBlank()) albumArtist = aa.trim()

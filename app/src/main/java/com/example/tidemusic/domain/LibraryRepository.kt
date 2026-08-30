@@ -242,6 +242,9 @@ class LibraryRepository constructor(
     fun observeArtists(): Flow<List<Artist>> =
         albumDao.observeArtists().map { rows -> rows.map { it.toDomain() } }
 
+    fun observeTracksForArtist(artistId: Long, artistName: String): Flow<List<Song>> =
+        albumDao.observeTracksForArtist(artistId, artistName).map { rows -> rows.map { it.toDomain() } }
+
     // ── Playlists (built-in + user) ─────────────────────────────────────────────────
 
     /**

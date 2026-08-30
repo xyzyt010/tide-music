@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -82,6 +83,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.example.tidemusic.AlbumDetail
 import com.example.tidemusic.Albums
+import com.example.tidemusic.ArtistDetail
+import com.example.tidemusic.Artists
 import com.example.tidemusic.Download
 import com.example.tidemusic.Equalizer as EqualizerNavKey
 import com.example.tidemusic.FolderDetail
@@ -98,6 +101,8 @@ import com.example.tidemusic.Settings as SettingsNavKey
 import com.example.tidemusic.SleepTimer
 import com.example.tidemusic.di.ServiceLocator
 import com.example.tidemusic.ui.albums.AlbumsScreen
+import com.example.tidemusic.ui.artists.ArtistsScreen
+import com.example.tidemusic.ui.artists.ArtistDetailScreen
 import com.example.tidemusic.ui.common.CenteredOverflowMenu
 import com.example.tidemusic.ui.common.CenteredMenuItem
 import com.example.tidemusic.ui.albums.AlbumDetailScreen
@@ -139,11 +144,11 @@ fun AppShell(initialDeepLink: String? = null) {
             currentKey == HelpInfo ||
             currentKey == SleepTimer
 
-    val sections = remember { listOf(Player, Queue, Albums, Playlists, Folders, Search, Download) }
+    val sections = remember { listOf(Player, Queue, Albums, Playlists, Folders, Search, Download, Artists) }
     val titles = remember {
         listOf(
             R.string.section_player, R.string.section_queue, R.string.section_albums, R.string.section_playlists,
-            R.string.section_folders, R.string.section_search, R.string.section_download
+            R.string.section_folders, R.string.section_search, R.string.section_download, R.string.section_artists
         )
     }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { sections.size })
@@ -158,6 +163,7 @@ fun AppShell(initialDeepLink: String? = null) {
         is AlbumDetail -> 2   // Albums
         is PlaylistDetail -> 3 // Playlists
         is FolderDetail -> 4   // Folders
+        is ArtistDetail -> 7   // Artists
         else -> -1
     }
 
@@ -240,6 +246,7 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Folders -> Icons.Rounded.Folder
                                         Search -> Icons.Rounded.Search
                                         Download -> Icons.Rounded.Download
+                                        Artists -> Icons.Rounded.Person
                                         else -> Icons.Rounded.PlayArrow
                                     }
                                     val label = when (navKey) {
@@ -250,6 +257,7 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Folders -> "Folders"
                                         Search -> "Search"
                                         Download -> "Download"
+                                        Artists -> "Artists"
                                         else -> ""
                                     }
                                     Column(
@@ -480,6 +488,13 @@ private fun ShellContents(
                             onFolderClick = { child -> onOpenDetail(FolderDetail(child.id, child.path)) }
                         )
                     }
+                    is ArtistDetail -> {
+                        ArtistDetailScreen(
+                            artistId = topKey.artistId,
+                            artistName = topKey.artistName,
+                            onBack = onBackDetail,
+                        )
+                    }
                 }
             } else {
                 when (sections[page]) {
@@ -490,6 +505,7 @@ private fun ShellContents(
                     Folders -> FoldersScreen(onFolderClick = { f -> onOpenDetail(FolderDetail(f.id, f.path)) })
                     Search -> SearchScreen(isActive = pagerState.currentPage == page)
                     Download -> DownloadScreen()
+                    Artists -> ArtistsScreen(onArtistClick = { id, name -> onOpenDetail(ArtistDetail(id, name)) })
                 }
             }
         }

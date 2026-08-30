@@ -99,8 +99,7 @@ class MediaStoreScanner(private val context: Context) {
                     val parentFolder = if (data.isNotBlank()) File(data).parentFile?.name else null
                     val rawAlbum = (if (albumCol != -1) c.getString(albumCol) else null)?.trim()
                     val isGeneric = isGenericOrInvalidAlbum(rawAlbum)
-                    val album = if (!isGeneric && !rawAlbum.isNullOrBlank()) rawAlbum
-                        else (if (!parentFolder.isNullOrBlank() && !isGenericOrInvalidAlbum(parentFolder)) parentFolder else title.ifBlank { "Unknown" })
+                    val album = if (!isGeneric && !rawAlbum.isNullOrBlank()) rawAlbum else ""
                     val albumArtist = if (albumArtistCol != -1) c.getString(albumArtistCol)?.takeIf { it.isNotBlank() } else null
                     val folderPath = data.substringBeforeLast('/', "")
                     val folderId = if (folderPath.isBlank()) null else StableIds.folderId(folderPath)
@@ -170,20 +169,36 @@ class MediaStoreScanner(private val context: Context) {
 
         for (t in tracks) {
             val artistId = StableIds.artistId(t.artist)
+            val trackArtwork = t.artworkUri ?: t.filePath
             artists.merge(
                 artistId,
-                ArtistEntity(artistId, t.artist, trackCount = 1, albumCount = 0),
-            ) { a, b -> a.copy(trackCount = a.trackCount + b.trackCount) }
+                ArtistEntity(
+                    id = artistId,
+                    name = t.artist,
+                    trackCount = 1,
+                    albumCount = 0,
+                    artworkUri = trackArtwork,
+                ),
+            ) { a, b ->
+                a.copy(
+                    trackCount = a.trackCount + b.trackCount,
+                    artworkUri = a.artworkUri ?: b.artworkUri ?: trackArtwork,
+                )
+            }
 
-            if (!isGenericOrInvalidAlbum(t.album)) {
+            val isAlbumValid = t.album.isNotBlank() &&
+                               !isGenericOrInvalidAlbum(t.album) &&
+                               !t.album.equals(t.title, ignoreCase = true)
+            if (isAlbumValid) {
                 val albumId = StableIds.albumId(t.album, t.albumArtist ?: t.artist)
+                val albumArt = t.artworkUri ?: t.filePath
                 albums.merge(
                     albumId,
                     AlbumEntity(
                         id = albumId,
                         name = t.album,
                         artist = t.albumArtist ?: t.artist,
-                        artworkUri = t.artworkUri ?: t.filePath,
+                        artworkUri = albumArt,
                         trackCount = 1,
                         totalDurationMs = t.durationMs,
                     ),
@@ -191,7 +206,7 @@ class MediaStoreScanner(private val context: Context) {
                     a.copy(
                         trackCount = a.trackCount + 1,
                         totalDurationMs = a.totalDurationMs + b.totalDurationMs,
-                        artworkUri = a.artworkUri ?: b.artworkUri ?: t.filePath
+                        artworkUri = a.artworkUri ?: b.artworkUri ?: albumArt,
                     )
                 }
             }

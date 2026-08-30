@@ -19,6 +19,7 @@ fun ArtistEntity.toDomain(): Artist = Artist(
     name = name,
     trackCount = trackCount,
     albumCount = albumCount,
+    artworkUri = artworkUri,
 )
 
 fun FolderEntity.toDomain(): Folder = Folder(

@@ -66,6 +66,7 @@ data class Artist(
     val name: String,
     val trackCount: Int,
     val albumCount: Int,
+    val artworkUri: String? = null,
 )
 
 data class Folder(
