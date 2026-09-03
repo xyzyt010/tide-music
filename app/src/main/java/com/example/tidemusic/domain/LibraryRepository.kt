@@ -262,8 +262,17 @@ class LibraryRepository constructor(
                     orderIndex = idx,
                 )
             }
+            val formatPlaylists = BuiltInPlaylists.formatPlaylists.mapIndexed { idx, name ->
+                Playlist(
+                    id = BuiltInPlaylistIds.idForName(name),
+                    name = name,
+                    isBuiltIn = true,
+                    createdAt = 0L,
+                    orderIndex = 100 + idx,
+                )
+            }
             val userRows = rows.filter { it.name != BuiltInPlaylists.DOWNLOAD && it.name != "yt-dlp" }
-            builtIns + userRows.map { it.toDomain() }
+            builtIns + formatPlaylists + userRows.map { it.toDomain() }
         }
 
     fun observeSongsForPlaylist(playlist: Playlist): Flow<List<Song>> = when (playlist.id) {
@@ -274,9 +283,30 @@ class LibraryRepository constructor(
         BuiltInPlaylistIds.MOST_PLAYED -> observeMostPlayed()
         BuiltInPlaylistIds.NOT_PLAYED -> observeNotPlayed()
         BuiltInPlaylistIds.DOWNLOAD -> observeYtDlpSongs()
+        BuiltInPlaylistIds.FORMAT_MP3 -> observeFormatSongs("mp3")
+        BuiltInPlaylistIds.FORMAT_FLAC -> observeFormatSongs("flac")
+        BuiltInPlaylistIds.FORMAT_M4A -> observeFormatSongs("m4a")
+        BuiltInPlaylistIds.FORMAT_WAV -> observeFormatSongs("wav")
+        BuiltInPlaylistIds.FORMAT_OGG -> observeFormatSongs("ogg")
         else -> playlistDao.observeSongsInPlaylist(playlist.id)
             .map { rows -> rows.map { it.toDomain() } }
     }
+
+    fun observeFormatSongs(format: String): Flow<List<Song>> =
+        songDao.observeAllSongs().map { list ->
+            list.filter { entity ->
+                val path = entity.filePath.lowercase()
+                val mime = entity.mimeType.lowercase()
+                when (format) {
+                    "mp3" -> path.endsWith(".mp3") || mime.contains("mpeg") || mime.contains("mp3")
+                    "flac" -> path.endsWith(".flac") || mime.contains("flac")
+                    "m4a" -> path.endsWith(".m4a") || path.endsWith(".aac") || path.endsWith(".mp4") || mime.contains("mp4") || mime.contains("aac")
+                    "wav" -> path.endsWith(".wav") || mime.contains("wav") || mime.contains("wave")
+                    "ogg" -> path.endsWith(".ogg") || path.endsWith(".opus") || mime.contains("ogg") || mime.contains("opus")
+                    else -> path.endsWith(".$format")
+                }
+            }.map { it.toDomain() }
+        }
 
     suspend fun createUserPlaylist(name: String): Long {
         val now = System.currentTimeMillis()

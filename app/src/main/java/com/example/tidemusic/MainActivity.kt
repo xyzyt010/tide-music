@@ -122,6 +122,16 @@ class MainActivity : ComponentActivity() {
         triggerLibraryScan()
     }
 
+    override fun onStart() {
+        super.onStart()
+        com.example.tidemusic.playback.FloatingPillManager.setAppInForeground(this, true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        com.example.tidemusic.playback.FloatingPillManager.setAppInForeground(this, false)
+    }
+
     override fun onResume() {
         super.onResume()
         if (hasAllPermissions()) {
@@ -188,10 +198,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var lastScanTimeMs = 0L
+
     /**
-     * Triggers asynchronous library scan in the background.
+     * Triggers asynchronous library scan in the background with a 60-second cooldown
+     * to avoid thrashing disk I/O when resuming the app.
      */
-    private fun triggerLibraryScan() {
+    private fun triggerLibraryScan(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && lastScanTimeMs > 0L && (now - lastScanTimeMs) < 60_000L) {
+            return
+        }
+        lastScanTimeMs = now
         val repository = ServiceLocator.repository
         activityScope.launch {
             try {

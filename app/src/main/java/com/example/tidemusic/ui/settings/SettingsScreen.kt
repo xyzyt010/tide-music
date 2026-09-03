@@ -104,6 +104,42 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
 
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var canDrawOverlays by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
+            SettingsRow(
+                icon = Icons.Rounded.MusicNote,
+                title = "Top Floating Capsule (Camera Cutout)",
+                subtitle = if (canDrawOverlays) "Active outside app while music is playing" else "Tap to grant 'Display over other apps' permission",
+                onClick = {
+                    if (!canDrawOverlays) {
+                        try {
+                            val intent = android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                },
+                trailing = {
+                    Switch(
+                        checked = canDrawOverlays,
+                        onCheckedChange = {
+                            if (!canDrawOverlays) {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        android.net.Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
+                    )
+                },
+            )
+
             // ── Library ──────────────────────────────────
             Text(
                 "Library",
@@ -134,7 +170,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             SettingsRow(
                 icon = Icons.Rounded.Info,
                 title = "Tide Music",
-                subtitle = "Version 1.0.0 · Private, offline-first music player",
+                subtitle = "Version 1.4.6 · Private, offline-first music player",
             )
             SettingsRow(
                 icon = Icons.Rounded.CheckCircle,

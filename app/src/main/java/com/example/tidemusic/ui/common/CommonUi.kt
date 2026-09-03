@@ -265,22 +265,24 @@ fun PlayingEqualizerBars(
     modifier: Modifier = Modifier,
     color: Color = TideColors.accent,
     isPlaying: Boolean = true,
-    barCount: Int = 3,
+    barCount: Int = 7,
+    barWidth: Dp = 1.6.dp,
+    barSpacing: Dp = 1.4.dp,
 ) {
     if (!isPlaying) {
         Row(
             modifier = modifier.height(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(barSpacing),
             verticalAlignment = Alignment.Bottom,
         ) {
-            val heights = listOf(0.45f, 0.9f, 0.6f, 0.75f)
+            val heights = listOf(0.35f, 0.70f, 0.45f, 0.90f, 0.55f, 0.80f, 0.40f)
             for (i in 0 until barCount) {
-                val hFrac = heights.getOrElse(i) { 0.5f }
+                val hFrac = heights.getOrElse(i % heights.size) { 0.5f }
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
+                        .width(barWidth)
                         .fillMaxHeight(hFrac)
-                        .clip(RoundedCornerShape(1.5.dp))
+                        .clip(RoundedCornerShape(0.8.dp))
                         .background(color)
                 )
             }
@@ -288,56 +290,83 @@ fun PlayingEqualizerBars(
     } else {
         val infiniteTransition = rememberInfiniteTransition(label = "equalizerTransition")
         val anim1 by infiniteTransition.animateFloat(
-            initialValue = 0.25f,
-            targetValue = 0.95f,
+            initialValue = 0.20f,
+            targetValue = 0.85f,
             animationSpec = infiniteRepeatable(
-                animation = tween(420, easing = LinearEasing),
+                animation = tween(310, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bar1"
         )
         val anim2 by infiniteTransition.animateFloat(
-            initialValue = 0.85f,
-            targetValue = 0.30f,
+            initialValue = 0.75f,
+            targetValue = 0.25f,
             animationSpec = infiniteRepeatable(
-                animation = tween(330, easing = LinearEasing),
+                animation = tween(440, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bar2"
         )
         val anim3 by infiniteTransition.animateFloat(
-            initialValue = 0.40f,
+            initialValue = 0.30f,
             targetValue = 1.0f,
             animationSpec = infiniteRepeatable(
-                animation = tween(490, easing = LinearEasing),
+                animation = tween(280, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bar3"
         )
         val anim4 by infiniteTransition.animateFloat(
-            initialValue = 0.60f,
+            initialValue = 0.85f,
             targetValue = 0.20f,
             animationSpec = infiniteRepeatable(
-                animation = tween(380, easing = LinearEasing),
+                animation = tween(520, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bar4"
         )
+        val anim5 by infiniteTransition.animateFloat(
+            initialValue = 0.40f,
+            targetValue = 0.90f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(360, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar5"
+        )
+        val anim6 by infiniteTransition.animateFloat(
+            initialValue = 0.90f,
+            targetValue = 0.30f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(480, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar6"
+        )
+        val anim7 by infiniteTransition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 0.75f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(330, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar7"
+        )
 
-        val anims = listOf(anim1, anim2, anim3, anim4)
+        val anims = listOf(anim1, anim2, anim3, anim4, anim5, anim6, anim7)
 
         Row(
             modifier = modifier.height(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(barSpacing),
             verticalAlignment = Alignment.Bottom,
         ) {
             for (i in 0 until barCount) {
                 val frac = anims.getOrElse(i % anims.size) { anim1 }
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
+                        .width(barWidth)
                         .fillMaxHeight(frac)
-                        .clip(RoundedCornerShape(1.5.dp))
+                        .clip(RoundedCornerShape(0.8.dp))
                         .background(color)
                 )
             }

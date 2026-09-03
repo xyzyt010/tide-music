@@ -50,34 +50,34 @@ class TideMusicApp : Application(), SingletonImageLoader.Factory {
         // yt-dlp downloader's --force-ipv4 flag. SEE YtDlpDownloadManager.kt.
         System.setProperty("java.net.preferIPv4Stack", "true")
 
-        var ytdlpInitOk = false
-        try {
-            YoutubeDL.getInstance().init(this)
-            ytdlpInitOk = true
-            // Update yt-dlp to latest NIGHTLY in the background to fix YouTube breaking changes
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // Launch heavy native binary decompression asynchronously in background
+        // so Application.onCreate completes in <30ms, making app launch instant.
+        GlobalScope.launch(Dispatchers.IO) {
+            var ytdlpInitOk = false
+            try {
+                YoutubeDL.getInstance().init(this@TideMusicApp)
+                ytdlpInitOk = true
+                // Update yt-dlp to latest NIGHTLY in the background to fix YouTube breaking changes
                 try {
                     YoutubeDL.getInstance().updateYoutubeDL(this@TideMusicApp, YoutubeDL.UpdateChannel.NIGHTLY)
                 } catch (e: Throwable) {
                     Log.e(TAG, "yt-dlp update failed", e)
                 }
+            } catch (e: Throwable) {
+                Log.e(TAG, "yt-dlp init failed", e)
             }
-        } catch (e: Throwable) {
-             Log.e(TAG, "yt-dlp init failed", e)
-        }
 
-        try {
-            FFmpeg.getInstance().init(this)
-        } catch (e: Throwable) {
-            Log.e(TAG, "ffmpeg init failed", e)
-        }
+            try {
+                FFmpeg.getInstance().init(this@TideMusicApp)
+            } catch (e: Throwable) {
+                Log.e(TAG, "ffmpeg init failed", e)
+            }
 
-        // Reflect the real initialization outcome so the Download screen can degrade
-        // gracefully when the bundled yt-dlp payload failed to load on this device.
-        YtDlpInitializer.markInitialized(success = ytdlpInitOk)
+            // Reflect the real initialization outcome so the Download screen can degrade
+            // gracefully when the bundled yt-dlp payload failed to load on this device.
+            YtDlpInitializer.markInitialized(success = ytdlpInitOk)
 
-        // Auto-create the "yt-dlp" playlist on first launch (user-deletable).
-        GlobalScope.launch(Dispatchers.IO) {
+            // Auto-create the "yt-dlp" playlist on first launch (user-deletable).
             try {
                 ServiceLocator.repository.ensureYtDlpPlaylist()
             } catch (e: Throwable) {

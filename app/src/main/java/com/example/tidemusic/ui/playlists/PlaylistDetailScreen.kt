@@ -111,7 +111,9 @@ class PlaylistDetailViewModel(
             }
         } else {
             val saved = ServiceLocator.settingsManager.getSortCriteria("playlist_${playlist.id}")
-            _sortCriteria.value = saved
+            _sortCriteria.value = if (saved.isEmpty() && com.example.tidemusic.domain.BuiltInPlaylistIds.isFormatPlaylist(playlist.id)) {
+                listOf(SortCriteria.TITLE_ASC)
+            } else saved
         }
 
         viewModelScope.launch {

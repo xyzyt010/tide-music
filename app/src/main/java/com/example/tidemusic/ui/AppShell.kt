@@ -457,55 +457,7 @@ fun AppShell(initialDeepLink: String? = null) {
         }
 
         // In-App Dynamic Island Mini Pill Widget (Black capsule pill with tiny artwork + animated sound bars)
-        val showMiniPill = !isPlayerExpanded && !isFullScreenDest && pagerState.currentPage != 0 && (currentMediaItem != null)
-        AnimatedVisibility(
-            visible = showMiniPill,
-            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(top = 4.dp)
-                .zIndex(25f),
-        ) {
-            val currentSong = currentMediaItem?.let(::mediaItemToSongDomain)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF000000))
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(20.dp))
-                    .clickable { isPlayerExpanded = true }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (currentSong != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF1E1E1E)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            com.example.tidemusic.ui.common.ArtworkTile(
-                                song = currentSong,
-                                size = 22.dp,
-                                rounded = 6.dp,
-                            )
-                        }
-                    }
-                    com.example.tidemusic.ui.common.PlayingEqualizerBars(
-                        isPlaying = isPlaying,
-                        color = Color.White,
-                        barCount = 4,
-                        modifier = Modifier.padding(horizontal = 2.dp),
-                    )
-                }
-            }
-        }
+
     }
 }
 

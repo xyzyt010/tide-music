@@ -57,6 +57,19 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build().also { exo ->
                 playbackController.attachPlayer(exo)
+                exo.addListener(object : Player.Listener {
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        FloatingPillManager.updatePlayback(this@PlaybackService, isPlaying, exo.currentMediaItem)
+                    }
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        FloatingPillManager.updatePlayback(this@PlaybackService, exo.isPlaying, mediaItem)
+                    }
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
+                            FloatingPillManager.updatePlayback(this@PlaybackService, false, null)
+                        }
+                    }
+                })
             }
             
         restoreState()
@@ -109,6 +122,7 @@ class PlaybackService : MediaSessionService() {
                 ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {
                     if (customCommand.customAction == "ACTION_CLOSE") {
                         saveState()
+                        FloatingPillManager.updatePlayback(this@PlaybackService, false, null)
                         player?.stop()
                         player?.clearMediaItems()
                         @Suppress("DEPRECATION")
@@ -235,6 +249,7 @@ class PlaybackService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "ACTION_CLOSE") {
             saveState()
+            FloatingPillManager.updatePlayback(this, false, null)
             player?.stop()
             player?.clearMediaItems()
             @Suppress("DEPRECATION")
@@ -257,6 +272,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         saveState()
+        FloatingPillManager.updatePlayback(this, false, null)
         mediaSession?.run {
             player.release()
             release()
