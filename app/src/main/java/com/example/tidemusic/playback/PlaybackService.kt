@@ -232,16 +232,27 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "ACTION_CLOSE") {
+            saveState()
+            player?.stop()
+            player?.clearMediaItems()
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        super.onStartCommand(intent, flags, startId)
+        return START_STICKY
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val p = player
         saveState()
-        if (p != null && !p.playWhenReady) {
-            stopSelf()
-        }
-        super.onTaskRemoved(rootIntent)
+        // Never stop playback when app is swiped away from recent apps.
+        // Playback only stops when user taps the Close (X) button in the notification drawer.
     }
 
     override fun onDestroy() {

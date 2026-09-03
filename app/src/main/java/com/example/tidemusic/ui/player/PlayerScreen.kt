@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -449,18 +451,43 @@ fun PlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 var playerViewPage by remember { mutableIntStateOf(0) }
+                var swipeDragOffset by remember { mutableFloatStateOf(0f) }
 
                 Box(
                     modifier = Modifier
                         .sizeIn(maxWidth = 280.dp, maxHeight = 280.dp)
-                        .aspectRatio(1f),
+                        .aspectRatio(1f)
+                        .pointerInput(playerViewPage) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (swipeDragOffset < -40f && playerViewPage == 0) {
+                                        playerViewPage = 1 // Swiped left -> show lyrics
+                                    } else if (swipeDragOffset > 40f && playerViewPage == 1) {
+                                        playerViewPage = 0 // Swiped right -> show artwork
+                                    }
+                                    swipeDragOffset = 0f
+                                },
+                                onDragCancel = {
+                                    swipeDragOffset = 0f
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    swipeDragOffset += dragAmount
+                                }
+                            )
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     AnimatedContent(
                         targetState = playerViewPage,
                         transitionSpec = {
-                            fadeIn(animationSpec = tween(250)) togetherWith
-                            fadeOut(animationSpec = tween(250))
+                            if (targetState > initialState) {
+                                (slideInHorizontally { width -> width / 2 } + fadeIn(animationSpec = tween(220))) togetherWith
+                                (slideOutHorizontally { width -> -width / 2 } + fadeOut(animationSpec = tween(220)))
+                            } else {
+                                (slideInHorizontally { width -> -width / 2 } + fadeIn(animationSpec = tween(220))) togetherWith
+                                (slideOutHorizontally { width -> width / 2 } + fadeOut(animationSpec = tween(220)))
+                            }
                         },
                         label = "PlayerViewSwitch"
                     ) { page ->
@@ -811,14 +838,21 @@ fun PlayerScreen(
 
                     Spacer(Modifier.width(8.dp))
 
-                    com.example.tidemusic.ui.equalizer.ThinLineHorizontalSlider(
-                        value = (currentVol / maxVol.coerceAtLeast(1f)).coerceIn(0f, 1f),
-                        onValueChange = { fraction ->
-                            val newVol = (fraction * maxVol).toInt().coerceIn(0, maxVol.toInt())
-                            currentVol = newVol.toFloat()
+                    com.example.tidemusic.ui.common.TideScrubSlider(
+                        value = currentVol,
+                        range = 0f..maxVol,
+                        onValueChange = { newVolFloat ->
+                            val newVol = newVolFloat.toInt().coerceIn(0, maxVol.toInt())
+                            currentVol = newVolFloat
                             audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
                         },
                         modifier = Modifier.weight(1f),
+                        activeColor = TideColors.textPrimary,
+                        touchHeight = 32.dp,
+                        restTrackHeight = 3.dp,
+                        dragTrackHeight = 5.dp,
+                        restThumbRadius = 5.5.dp,
+                        dragThumbRadius = 8.5.dp,
                     )
 
                     Spacer(Modifier.width(8.dp))
@@ -869,6 +903,9 @@ fun PlayerScreen(
             onDismiss = { showTagEditorDialog = false },
             onSave = { title, artist, album ->
                 viewModel.updateTags(s.id, title, artist, album)
+                scope.launch {
+                    com.example.tidemusic.util.FileTagWriter.writeTags(context, s, title, artist, album)
+                }
                 showTagEditorDialog = false
                 Toast.makeText(context, "Tags updated", Toast.LENGTH_SHORT).show()
             },

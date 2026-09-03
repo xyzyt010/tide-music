@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -131,10 +132,221 @@ fun ThinTopBar(
 }
 
 /**
- * Persistent glass mini-player bar (spec Section 5 / 2). Haze-blurred, hairline border,
- * pinned above the tab bar. Only visible when a queue is loaded. Tapping opens the
- * full-screen Player screen.
- *
+ * Professional, highly-draggable, hardware-accelerated scrub slider used across
+ * the player time scrubber, mini player timeline, and player volume slider.
+ */
+@Composable
+fun TideScrubSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    range: ClosedFloatingPointRange<Float> = 0f..1f,
+    activeColor: Color = TideColors.accent,
+    inactiveColor: Color = Color.White.copy(alpha = 0.20f),
+    thumbColor: Color = Color.White,
+    haloColor: Color = activeColor.copy(alpha = 0.30f),
+    touchHeight: Dp = 26.dp,
+    restTrackHeight: Dp = 3.dp,
+    dragTrackHeight: Dp = 5.dp,
+    restThumbRadius: Dp = 5.dp,
+    dragThumbRadius: Dp = 8.5.dp,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    val rangeSpan = (range.endInclusive - range.start).coerceAtLeast(0.0001f)
+    var dragValue by remember { mutableStateOf<Float?>(null) }
+    val displayValue = dragValue ?: value
+    val fraction = ((displayValue - range.start) / rangeSpan).coerceIn(0f, 1f)
+
+    val isDragging = dragValue != null
+    val animatedThumbRadius by animateDpAsState(
+        targetValue = if (isDragging) dragThumbRadius else restThumbRadius,
+        label = "tideThumbRadius"
+    )
+    val animatedTrackHeight by animateDpAsState(
+        targetValue = if (isDragging) dragTrackHeight else restTrackHeight,
+        label = "tideTrackHeight"
+    )
+
+    Box(
+        modifier = modifier
+            .height(touchHeight)
+            .pointerInput(range) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        val initialFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        val v = range.start + initialFraction * rangeSpan
+                        dragValue = v
+                        onValueChange(v)
+                    },
+                    onDragEnd = {
+                        dragValue?.let { onValueChange(it) }
+                        dragValue = null
+                        onValueChangeFinished?.invoke()
+                    },
+                    onDragCancel = {
+                        dragValue = null
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        val current = dragValue ?: value
+                        val delta = (dragAmount / size.width) * rangeSpan
+                        val next = (current + delta).coerceIn(range.start, range.endInclusive)
+                        dragValue = next
+                        onValueChange(next)
+                    }
+                )
+            }
+            .pointerInput(range) {
+                detectTapGestures { offset ->
+                    val tappedFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                    val v = range.start + tappedFraction * rangeSpan
+                    onValueChange(v)
+                    onValueChangeFinished?.invoke()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val trackY = size.height / 2f
+            val trackH = animatedTrackHeight.toPx()
+            val thumbR = animatedThumbRadius.toPx()
+            val activeWidth = (size.width * fraction).coerceIn(0f, size.width)
+
+            // Inactive track line
+            drawLine(
+                color = inactiveColor,
+                start = androidx.compose.ui.geometry.Offset(0f, trackY),
+                end = androidx.compose.ui.geometry.Offset(size.width, trackY),
+                strokeWidth = trackH,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+
+            // Active track line
+            if (activeWidth > 0f) {
+                drawLine(
+                    color = activeColor,
+                    start = androidx.compose.ui.geometry.Offset(0f, trackY),
+                    end = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+                    strokeWidth = trackH,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                )
+            }
+
+            // Dragging glowing halo
+            if (isDragging) {
+                drawCircle(
+                    color = haloColor,
+                    radius = thumbR + 7.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+                )
+            }
+
+            // Knob thumb
+            drawCircle(
+                color = thumbColor,
+                radius = thumbR,
+                center = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+            )
+            drawCircle(
+                color = activeColor,
+                radius = thumbR,
+                center = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+            )
+        }
+    }
+}
+
+/**
+ * Animated sound playing equalizer bar graph (matches Spotify / reference screenshot).
+ */
+@Composable
+fun PlayingEqualizerBars(
+    modifier: Modifier = Modifier,
+    color: Color = TideColors.accent,
+    isPlaying: Boolean = true,
+    barCount: Int = 3,
+) {
+    if (!isPlaying) {
+        Row(
+            modifier = modifier.height(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            val heights = listOf(0.45f, 0.9f, 0.6f, 0.75f)
+            for (i in 0 until barCount) {
+                val hFrac = heights.getOrElse(i) { 0.5f }
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .fillMaxHeight(hFrac)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(color)
+                )
+            }
+        }
+    } else {
+        val infiniteTransition = rememberInfiniteTransition(label = "equalizerTransition")
+        val anim1 by infiniteTransition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 0.95f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(420, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar1"
+        )
+        val anim2 by infiniteTransition.animateFloat(
+            initialValue = 0.85f,
+            targetValue = 0.30f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(330, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar2"
+        )
+        val anim3 by infiniteTransition.animateFloat(
+            initialValue = 0.40f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(490, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar3"
+        )
+        val anim4 by infiniteTransition.animateFloat(
+            initialValue = 0.60f,
+            targetValue = 0.20f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(380, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar4"
+        )
+
+        val anims = listOf(anim1, anim2, anim3, anim4)
+
+        Row(
+            modifier = modifier.height(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            for (i in 0 until barCount) {
+                val frac = anims.getOrElse(i % anims.size) { anim1 }
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .fillMaxHeight(frac)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(color)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Top-level mini-player bar displayed across the entire app whenever a song is loaded.
  * Lifts the live current item / play state from the controller via a simple polling effect
  * — no Flow factories involved, so listeners are contained within the controller's lifetime
  * and replaced when the controller is rebuilt (when MainActivity reconnects on process
@@ -383,112 +595,23 @@ fun MiniPlayerBar(onClick: () -> Unit) {
 
             // Professional Canvas timeline seek bar with smooth scrubbing
             if (song != null && duration > 0f) {
-                var isDraggingTimeline by remember { mutableStateOf(false) }
-                var dragFraction by remember { mutableFloatStateOf(0f) }
-                val currentFraction = (position / duration.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                val displayFraction = if (isDraggingTimeline) dragFraction else currentFraction
-
-                val animatedThumbRadius by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 7.dp else 4.5.dp,
-                    label = "miniPlayerThumb"
-                )
-                val animatedTrackHeight by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 4.5.dp else 3.dp,
-                    label = "miniPlayerTrack"
-                )
-
-                val trackInactive = Color.White.copy(alpha = 0.20f)
-                val trackActive = TideColors.accent
-
-                Box(
+                TideScrubSlider(
+                    value = position,
+                    range = 0f..duration,
+                    onValueChange = { targetMs ->
+                        controller.seekTo(targetMs.toLong())
+                        position = targetMs
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(24.dp)
-                        .padding(horizontal = 16.dp)
-                        .pointerInput(duration) {
-                            detectTapGestures(
-                                onPress = { offset ->
-                                    isDraggingTimeline = true
-                                    val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    dragFraction = frac
-                                    val targetMs = (frac * duration).toLong()
-                                    controller.seekTo(targetMs)
-                                    tryAwaitRelease()
-                                    isDraggingTimeline = false
-                                }
-                            )
-                        }
-                        .pointerInput(duration) {
-                            detectHorizontalDragGestures(
-                                onDragStart = { offset ->
-                                    isDraggingTimeline = true
-                                    dragFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                },
-                                onDragEnd = {
-                                    val targetMs = (dragFraction * duration).toLong()
-                                    controller.seekTo(targetMs)
-                                    isDraggingTimeline = false
-                                },
-                                onDragCancel = {
-                                    isDraggingTimeline = false
-                                },
-                                onHorizontalDrag = { change, _ ->
-                                    change.consume()
-                                    dragFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                        val trackY = size.height / 2f
-                        val trackH = animatedTrackHeight.toPx()
-                        val thumbR = animatedThumbRadius.toPx()
-                        val activeX = (size.width * displayFraction).coerceIn(0f, size.width)
-
-                        // Inactive base track
-                        drawLine(
-                            color = trackInactive,
-                            start = androidx.compose.ui.geometry.Offset(0f, trackY),
-                            end = androidx.compose.ui.geometry.Offset(size.width, trackY),
-                            strokeWidth = trackH,
-                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                        )
-
-                        // Active elapsed track
-                        if (activeX > 0f) {
-                            drawLine(
-                                color = trackActive,
-                                start = androidx.compose.ui.geometry.Offset(0f, trackY),
-                                end = androidx.compose.ui.geometry.Offset(activeX, trackY),
-                                strokeWidth = trackH,
-                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                            )
-                        }
-
-                        // Glow halo when dragging
-                        if (isDraggingTimeline) {
-                            drawCircle(
-                                color = trackActive.copy(alpha = 0.30f),
-                                radius = thumbR + 6.dp.toPx(),
-                                center = androidx.compose.ui.geometry.Offset(activeX, trackY),
-                            )
-                        }
-
-                        // Thumb knob
-                        drawCircle(
-                            color = Color.White,
-                            radius = thumbR,
-                            center = androidx.compose.ui.geometry.Offset(activeX, trackY),
-                        )
-                        drawCircle(
-                            color = trackActive,
-                            radius = thumbR,
-                            center = androidx.compose.ui.geometry.Offset(activeX, trackY),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
-                        )
-                    }
-                }
+                        .padding(horizontal = 16.dp),
+                    activeColor = TideColors.accent,
+                    touchHeight = 24.dp,
+                    restTrackHeight = 3.dp,
+                    dragTrackHeight = 4.5.dp,
+                    restThumbRadius = 4.5.dp,
+                    dragThumbRadius = 7.5.dp,
+                )
             } else {
                 Spacer(Modifier.height(4.dp))
             }
@@ -711,14 +834,32 @@ fun SongRow(
                 ),
             )
         }
+        val controller = LocalMediaController.current
+        val currentMediaId = controller?.currentMediaItem?.mediaId?.toLongOrNull()
+        val isCurrentlyPlaying = (currentMediaId == song.id)
+        val isPlaybackActive = (controller?.isPlaying == true)
+
         ArtworkTile(song = song, size = 56.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(
-                text = titleOverride ?: song.title.orUnknown(),
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (highlight) TideColors.accent else TideColors.textPrimary,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (isCurrentlyPlaying) {
+                    PlayingEqualizerBars(
+                        isPlaying = isPlaybackActive,
+                        color = TideColors.accent,
+                        modifier = Modifier.padding(end = 6.dp)
+                    )
+                }
+                Text(
+                    text = titleOverride ?: song.title.orUnknown(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (isCurrentlyPlaying || highlight) TideColors.accent else TideColors.textPrimary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
             Text(
                 text = subtitleOverride ?: "${song.artist.orUnknown()} • ${formatDuration(song.durationMs)}",
                 style = MaterialTheme.typography.bodySmall,

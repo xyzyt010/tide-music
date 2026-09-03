@@ -41,7 +41,7 @@ class DownloadViewModel(
     val tasks: StateFlow<List<DownloadTaskEntity>> = _tasks
 
     val activeTasks = _tasks.map { list ->
-        list.filter { it.status != "Done" }
+        list.filter { !it.status.startsWith("Done") }
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),

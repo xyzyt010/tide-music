@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Full-bleed previous icon so MediaStyle notification buttons render larger. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="38dp"
-    android:height="38dp"
+    android:width="44dp"
+    android:height="44dp"
     android:viewportWidth="48"
     android:viewportHeight="48"
     android:tint="#FFFFFF">
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M14,12h4v24h-4zM34,12 L18,24 34,36z" />
+        android:pathData="M10,10h5v28h-5zM36,10 L16,24 36,38z" />
 </vector>

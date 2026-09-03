@@ -94,6 +94,7 @@ fun SongOverflowMenu(
                 scope.launch {
                     try {
                         ServiceLocator.repository.updateTags(song.id, title, artist, album)
+                        com.example.tidemusic.util.FileTagWriter.writeTags(context, song, title, artist, album)
                         toast(context, "Tags updated")
                     } catch (e: Exception) {
                         toast(context, "Could not update tags")
@@ -319,7 +320,7 @@ fun SongOverflowMenu(
 
         CenteredMenuDivider()
 
-        CenteredMenuItem(Icons.Rounded.Edit, "Edit tags") {
+        CenteredMenuItem(Icons.Rounded.Edit, "Edit name / artist tags") {
             onDismiss()
             if (onEditTags != null) onEditTags()
             else showTagDialog = true

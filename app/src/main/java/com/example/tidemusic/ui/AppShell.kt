@@ -23,9 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -158,6 +163,25 @@ fun AppShell(initialDeepLink: String? = null) {
     val sectionStacks = remember { mutableStateMapOf<Int, List<NavKey>>() }
     var isPlayerExpanded by remember { mutableStateOf(false) }
 
+    val controller = LocalMediaController.current
+    var currentMediaItem by remember { mutableStateOf(controller?.currentMediaItem) }
+    var isPlaying by remember { mutableStateOf(controller?.isPlaying == true) }
+    LaunchedEffect(controller) {
+        if (controller != null) {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                    currentMediaItem = mediaItem
+                }
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+            }
+            controller.addListener(listener)
+            currentMediaItem = controller.currentMediaItem
+            isPlaying = controller.isPlaying
+        }
+    }
+
     // Determine which section index a detail NavKey belongs to.
     fun sectionIndexForDetailKey(key: NavKey): Int = when (key) {
         is AlbumDetail -> 2   // Albums
@@ -176,16 +200,6 @@ fun AppShell(initialDeepLink: String? = null) {
                     var menuOpen by remember { mutableStateOf(false) }
                     val barOutline = Color.White.copy(alpha = 0.16f)
                     val isPlayerPage = pagerState.currentPage == 0
-                    val controller = LocalMediaController.current
-                    var currentMediaItem by remember { mutableStateOf(controller?.currentMediaItem) }
-                    LaunchedEffect(controller) {
-                        controller?.addListener(object : androidx.media3.common.Player.Listener {
-                            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                                currentMediaItem = mediaItem
-                            }
-                        })
-                        currentMediaItem = controller?.currentMediaItem
-                    }
                     val currentSong = currentMediaItem?.let(::mediaItemToSongDomain)
                     val artworkModel = if (isPlayerPage && currentSong != null) {
                         remember(currentSong.id, currentSong.filePath, currentSong.uri, currentSong.dateModified) {
@@ -440,6 +454,57 @@ fun AppShell(initialDeepLink: String? = null) {
                     }
                 },
             )
+        }
+
+        // In-App Dynamic Island Mini Pill Widget (Black capsule pill with tiny artwork + animated sound bars)
+        val showMiniPill = !isPlayerExpanded && !isFullScreenDest && pagerState.currentPage != 0 && (currentMediaItem != null)
+        AnimatedVisibility(
+            visible = showMiniPill,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 4.dp)
+                .zIndex(25f),
+        ) {
+            val currentSong = currentMediaItem?.let(::mediaItemToSongDomain)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF000000))
+                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(20.dp))
+                    .clickable { isPlayerExpanded = true }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (currentSong != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF1E1E1E)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            com.example.tidemusic.ui.common.ArtworkTile(
+                                song = currentSong,
+                                size = 22.dp,
+                                rounded = 6.dp,
+                            )
+                        }
+                    }
+                    com.example.tidemusic.ui.common.PlayingEqualizerBars(
+                        isPlaying = isPlaying,
+                        color = Color.White,
+                        barCount = 4,
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                    )
+                }
+            }
         }
     }
 }

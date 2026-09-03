@@ -35,6 +35,15 @@ class PlaybackController constructor(
     val audioSessionId: Int
         get() = (player as? androidx.media3.exoplayer.ExoPlayer)?.audioSessionId ?: 0
 
+    val isPlaying: Boolean
+        get() = player?.isPlaying == true
+
+    val currentTitle: String?
+        get() = player?.currentMediaItem?.mediaMetadata?.title?.toString()
+
+    val currentArtist: String?
+        get() = player?.currentMediaItem?.mediaMetadata?.artist?.toString()
+
     /** Bound during [PlaybackService.onCreate]; released during onDestroy. */
     fun attachPlayer(p: Player) {
         if (player === p) return

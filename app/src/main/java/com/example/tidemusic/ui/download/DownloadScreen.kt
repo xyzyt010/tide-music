@@ -206,38 +206,6 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
                 }
             }
 
-            if (qualityKbps < 320) {
-                CenteredMenuDivider()
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFFFFA726).copy(alpha = 0.12f))
-                        .padding(10.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.Warning,
-                            contentDescription = null,
-                            tint = Color(0xFFFFA726),
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "Storage Advisory",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFFFFA726),
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Selecting 128 or 192 kbps saves negligible storage space on modern devices while noticeably reducing song audio fidelity. 320 kbps (High) is strongly recommended.",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
-                        color = TideColors.textPrimary,
-                    )
-                }
-            }
         }
 
         // Engine selection dialog
@@ -438,7 +406,7 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
                     )
                     Text(
                         text = if (ytDlpSongs.isEmpty()) {
-                            "No downloaded songs yet. Downloads are added to the Download playlist."
+                            "No downloaded songs yet"
                         } else {
                             "${ytDlpSongs.size} song${if (ytDlpSongs.size == 1) "" else "s"}"
                         },

@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +63,7 @@ fun ArtistsScreen(
 ) {
     val rawArtists by viewModel.artists.collectAsState()
     var isAscending by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
 
     val sortedArtists = remember(rawArtists, isAscending) {
         val seen = HashSet<String>()
@@ -77,6 +80,12 @@ fun ArtistsScreen(
         } else {
             filtered.sortedByDescending { it.name.trim().lowercase() }
         }
+    }
+
+    val displayArtists = remember(sortedArtists, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) sortedArtists
+        else sortedArtists.filter { it.name.contains(q, ignoreCase = true) }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -109,10 +118,63 @@ fun ArtistsScreen(
             }
         )
 
-        if (sortedArtists.isEmpty()) {
+        // Compact Search Bar (No auto-focus so keyboard never opens automatically)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(TideColors.surfaceElevated.copy(alpha = 0.65f))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = "Search",
+                    tint = TideColors.textSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                androidx.compose.foundation.text.BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = TideColors.textPrimary),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { innerTextField ->
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Search artists...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TideColors.textSecondary.copy(alpha = 0.6f),
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(
+                        onClick = { searchQuery = "" },
+                        modifier = Modifier.size(22.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Clear search",
+                            tint = TideColors.textSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (displayArtists.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "No artists found.\nSongs need valid artist metadata tags.",
+                    text = if (searchQuery.isNotBlank()) "No artists matching \"$searchQuery\"" else "No artists found.\nSongs need valid artist metadata tags.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = TideColors.textSecondary,
                     textAlign = TextAlign.Center,
@@ -125,7 +187,7 @@ fun ArtistsScreen(
                     .fillMaxSize()
                     .weight(1f),
             ) {
-                items(sortedArtists, key = { it.id }) { artist ->
+                items(displayArtists, key = { it.id }) { artist ->
                     ArtistListRow(
                         artist = artist,
                         onClick = { onArtistClick(artist.id, artist.name) }

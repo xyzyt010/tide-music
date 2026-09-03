@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Full-bleed pause icon so MediaStyle notification buttons render larger. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="38dp"
-    android:height="38dp"
+    android:width="44dp"
+    android:height="44dp"
     android:viewportWidth="48"
     android:viewportHeight="48"
     android:tint="#FFFFFF">
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M12,10h8v28h-8zM28,10h8v28h-8z" />
+        android:pathData="M10,8h9v32h-9zM29,8h9v32h-9z" />
 </vector>
