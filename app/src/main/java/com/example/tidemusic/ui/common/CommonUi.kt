@@ -381,27 +381,30 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 }
             }
 
-            // Interactive timeline seek bar: raised higher with comfortable 26dp touch area and perfectly round knob
+            // Professional Canvas timeline seek bar with smooth scrubbing
             if (song != null && duration > 0f) {
                 var isDraggingTimeline by remember { mutableStateOf(false) }
                 var dragFraction by remember { mutableFloatStateOf(0f) }
                 val currentFraction = (position / duration.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 val displayFraction = if (isDraggingTimeline) dragFraction else currentFraction
 
-                val trackHeight by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 5.dp else 4.dp,
-                    label = "miniTrackHeight",
+                val animatedThumbRadius by animateDpAsState(
+                    targetValue = if (isDraggingTimeline) 7.dp else 4.5.dp,
+                    label = "miniPlayerThumb"
                 )
-                val knobSize by animateDpAsState(
-                    targetValue = if (isDraggingTimeline) 16.dp else 12.dp,
-                    label = "miniKnobSize",
+                val animatedTrackHeight by animateDpAsState(
+                    targetValue = if (isDraggingTimeline) 4.5.dp else 3.dp,
+                    label = "miniPlayerTrack"
                 )
 
-                BoxWithConstraints(
+                val trackInactive = Color.White.copy(alpha = 0.20f)
+                val trackActive = TideColors.accent
+
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(26.dp)
-                        .padding(horizontal = 14.dp)
+                        .height(24.dp)
+                        .padding(horizontal = 16.dp)
                         .pointerInput(duration) {
                             detectTapGestures(
                                 onPress = { offset ->
@@ -431,58 +434,58 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                                 },
                                 onHorizontalDrag = { change, _ ->
                                     change.consume()
-                                    val frac = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    dragFraction = frac
+                                    dragFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
                                 }
                             )
                         },
-                    contentAlignment = Alignment.CenterStart,
+                    contentAlignment = Alignment.Center,
                 ) {
-                    val totalWidth = maxWidth
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                        val trackY = size.height / 2f
+                        val trackH = animatedTrackHeight.toPx()
+                        val thumbR = animatedThumbRadius.toPx()
+                        val activeX = (size.width * displayFraction).coerceIn(0f, size.width)
 
-                    // Inactive background track line
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(trackHeight)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(Color.White.copy(alpha = 0.20f))
-                            .align(Alignment.CenterStart),
-                    )
+                        // Inactive base track
+                        drawLine(
+                            color = trackInactive,
+                            start = androidx.compose.ui.geometry.Offset(0f, trackY),
+                            end = androidx.compose.ui.geometry.Offset(size.width, trackY),
+                            strokeWidth = trackH,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        )
 
-                    // Active elapsed track line
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(displayFraction)
-                            .height(trackHeight)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(TideColors.accent)
-                            .align(Alignment.CenterStart),
-                    )
-
-                    // Truly round thumb knob (placed with absolute offset, never squeezed at 0% or 100%)
-                    val knobX = ((totalWidth - knobSize) * displayFraction).coerceAtLeast(0.dp)
-                    Box(
-                        modifier = Modifier
-                            .offset(x = knobX)
-                            .size(knobSize)
-                            .align(Alignment.CenterStart),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isDraggingTimeline) {
-                            Box(
-                                modifier = Modifier
-                                    .size(knobSize + 8.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00E5FF).copy(alpha = 0.35f)),
+                        // Active elapsed track
+                        if (activeX > 0f) {
+                            drawLine(
+                                color = trackActive,
+                                start = androidx.compose.ui.geometry.Offset(0f, trackY),
+                                end = androidx.compose.ui.geometry.Offset(activeX, trackY),
+                                strokeWidth = trackH,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape)
-                                .background(Color.White)
-                                .border(1.5.dp, TideColors.accent, CircleShape),
+
+                        // Glow halo when dragging
+                        if (isDraggingTimeline) {
+                            drawCircle(
+                                color = trackActive.copy(alpha = 0.30f),
+                                radius = thumbR + 6.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(activeX, trackY),
+                            )
+                        }
+
+                        // Thumb knob
+                        drawCircle(
+                            color = Color.White,
+                            radius = thumbR,
+                            center = androidx.compose.ui.geometry.Offset(activeX, trackY),
+                        )
+                        drawCircle(
+                            color = trackActive,
+                            radius = thumbR,
+                            center = androidx.compose.ui.geometry.Offset(activeX, trackY),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
                         )
                     }
                 }

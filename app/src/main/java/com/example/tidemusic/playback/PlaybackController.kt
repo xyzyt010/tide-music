@@ -26,6 +26,10 @@ class PlaybackController constructor(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val secureRandom = java.security.SecureRandom()
+    private var lastPlayedMediaId: Long? = null
+    private var saveStateJob: kotlinx.coroutines.Job? = null
     private var player: Player? = null
 
     val audioSessionId: Int
@@ -116,6 +120,14 @@ class PlaybackController constructor(
             val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
             p.clearMediaItems()
             p.setMediaItems(mediaItems, safeIndex, 0L)
+            if (p.shuffleModeEnabled && mediaItems.size > 1) {
+                (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(
+                    androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
+                        mediaItems.size,
+                        secureRandom.nextLong()
+                    )
+                )
+            }
             p.prepare()
             p.playWhenReady = true
             savePlaybackState()
@@ -168,8 +180,13 @@ class PlaybackController constructor(
         try {
             if (p.isPlaying) {
                 p.pause()
-            } else if (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_ENDED || p.mediaItemCount > 0) {
-                if (p.playbackState == Player.STATE_ENDED) p.seekTo(0, 0L)
+            } else {
+                if (p.playbackState == Player.STATE_IDLE || p.playerError != null) {
+                    p.prepare()
+                } else if (p.playbackState == Player.STATE_ENDED) {
+                    p.seekTo(0, 0L)
+                    p.prepare()
+                }
                 p.play()
             }
             savePlaybackState()
@@ -184,9 +201,18 @@ class PlaybackController constructor(
             if (p.mediaItemCount > 0) {
                 if (p.hasNextMediaItem()) {
                     p.seekToNextMediaItem()
+                } else if (p.shuffleModeEnabled && p.mediaItemCount > 1) {
+                    (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(
+                        androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
+                            p.mediaItemCount,
+                            secureRandom.nextLong()
+                        )
+                    )
+                    p.seekTo(0, 0L)
                 } else {
                     p.seekTo(0, 0L)
                 }
+                if (!p.isPlaying) p.play()
             }
             savePlaybackState()
         } catch (e: Exception) {
@@ -205,6 +231,7 @@ class PlaybackController constructor(
                 } else {
                     p.seekTo(0, 0L)
                 }
+                if (!p.isPlaying) p.play()
             }
             savePlaybackState()
         } catch (e: Exception) {
@@ -252,6 +279,14 @@ class PlaybackController constructor(
         val p = player ?: return
         try {
             p.shuffleModeEnabled = enabled
+            if (enabled && p.mediaItemCount > 1) {
+                (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(
+                    androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
+                        p.mediaItemCount,
+                        secureRandom.nextLong()
+                    )
+                )
+            }
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error setting shuffle", e)
         }
@@ -286,17 +321,26 @@ class PlaybackController constructor(
         val p = player ?: return
         try {
             val count = p.mediaItemCount
-            val ids = mutableListOf<Long>()
+            val currentIndex = p.currentMediaItemIndex.coerceAtLeast(0)
+            val currentPos = p.currentPosition.coerceAtLeast(0L)
+            val ids = ArrayList<Long>(count)
             for (i in 0 until count) {
                 val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
                 if (id != null) ids.add(id)
             }
-            val prefs = context.getSharedPreferences("playback_state", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("queue_ids", ids.joinToString(","))
-                .putInt("queue_index", p.currentMediaItemIndex.coerceAtLeast(0))
-                .putLong("queue_position", p.currentPosition.coerceAtLeast(0L))
-                .apply()
+            saveStateJob?.cancel()
+            saveStateJob = ioScope.launch {
+                try {
+                    val prefs = context.getSharedPreferences("playback_state", Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString("queue_ids", ids.joinToString(","))
+                        .putInt("queue_index", currentIndex)
+                        .putLong("queue_position", currentPos)
+                        .apply()
+                } catch (e: Exception) {
+                    Log.e("PlaybackController", "Error saving playback state to prefs", e)
+                }
+            }
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error saving playback state", e)
         }
@@ -305,7 +349,16 @@ class PlaybackController constructor(
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val id = mediaItem?.mediaId?.toLongOrNull()
+            val p = player
+            // Prevent back-to-back immediate repeat in shuffle mode if there are multiple songs
+            if (id != null && p != null && p.shuffleModeEnabled && p.mediaItemCount > 1 && id == lastPlayedMediaId) {
+                if (p.hasNextMediaItem()) {
+                    p.seekToNextMediaItem()
+                    return
+                }
+            }
             if (id != null) {
+                lastPlayedMediaId = id
                 scope.launch {
                     try {
                         val now = System.currentTimeMillis()
@@ -319,7 +372,6 @@ class PlaybackController constructor(
                     } catch (_: Exception) {}
                 }
             }
-            savePlaybackState()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {

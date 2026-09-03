@@ -1,19 +1,29 @@
 package com.example.tidemusic.ui.artists
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -81,6 +91,20 @@ class ArtistDetailViewModel(
     fun playAt(index: Int) {
         playback.setQueue(_tracks.value, startIndex = index)
     }
+
+    fun playAll() {
+        if (_tracks.value.isNotEmpty()) {
+            playback.setQueue(_tracks.value, startIndex = 0)
+        }
+    }
+
+    fun shuffleAll() {
+        if (_tracks.value.isNotEmpty()) {
+            val shuffled = _tracks.value.shuffled(java.security.SecureRandom())
+            playback.setQueue(shuffled, startIndex = 0)
+            playback.setShuffleMode(true)
+        }
+    }
 }
 
 @Composable
@@ -107,7 +131,7 @@ fun ArtistDetailScreen(
             trailing = {
                 Box {
                     IconButton(onClick = { showSortDropdown = true }) {
-                        Icon(Icons.Rounded.Sort, contentDescription = "Sort")
+                        Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
                     }
                     SortDropdown(
                         expanded = showSortDropdown,
@@ -133,8 +157,63 @@ fun ArtistDetailScreen(
                             color = TideColors.textSecondary,
                             fontWeight = FontWeight.Medium,
                         )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // Playlist action header: Play All and Shuffle All
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.Button(
+                                onClick = { viewModel.playAll() },
+                                modifier = Modifier.weight(1f),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = TideColors.accent,
+                                    contentColor = Color.Black,
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Play All",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+
+                            androidx.compose.material3.FilledTonalButton(
+                                onClick = { viewModel.shuffleAll() },
+                                modifier = Modifier.weight(1f),
+                                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = TideColors.surfaceElevated,
+                                    contentColor = TideColors.textPrimary,
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Shuffle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = TideColors.accent,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Shuffle",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+
                         HorizontalDivider(
-                            modifier = Modifier.padding(top = 10.dp),
+                            modifier = Modifier.padding(top = 14.dp),
                             color = Color.White.copy(alpha = 0.08f),
                             thickness = 1.dp
                         )

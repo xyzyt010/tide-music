@@ -7,9 +7,10 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <!-- Required so the media notification can be shown on API 33+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Foreground service of type media playback. -->
+    <!-- Foreground service of type media playback & dataSync. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <!-- Keep playback alive during doze/background. -->
@@ -49,6 +50,12 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Foreground service for reliable background audio downloading -->
+        <service
+            android:name="com.example.tidemusic.playback.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- FileProvider for Share Song (Intent.ACTION_SEND) and ringtone export. -->
         <provider

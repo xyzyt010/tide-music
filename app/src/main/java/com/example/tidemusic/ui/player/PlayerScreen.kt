@@ -32,12 +32,20 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.automirrored.rounded.VolumeDown
+import androidx.compose.material.icons.automirrored.rounded.VolumeMute
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -238,7 +246,6 @@ fun PlayerScreen(
     var overflowOpen by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showPlaylistDialog by remember { mutableStateOf(false) }
-    var showVolumePopup by remember { mutableStateOf(false) }
     var showInfoSheet by remember { mutableStateOf(false) }
     var showTagEditorDialog by remember { mutableStateOf(false) }
     var showBookmarksDialog by remember { mutableStateOf(false) }
@@ -441,25 +448,32 @@ fun PlayerScreen(
                     .padding(bottom = 76.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Spacer(modifier = Modifier.weight(0.2f))
+                var playerViewPage by remember { mutableIntStateOf(0) }
 
-                val playerPagerState = rememberPagerState(pageCount = { 2 })
-
-                HorizontalPager(
-                    state = playerPagerState,
+                Box(
                     modifier = Modifier
                         .sizeIn(maxWidth = 280.dp, maxHeight = 280.dp)
                         .aspectRatio(1f),
-                ) { page ->
-                    if (page == 0) {
-                        PlayerArtwork(song = s, size = 280.dp, isPlaying = isPlaying)
-                    } else {
-                        LyricsCanvasView(
-                            song = s,
-                            positionMs = position.toLong(),
-                            onSeek = { controller?.seekTo(it) },
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AnimatedContent(
+                        targetState = playerViewPage,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(250)) togetherWith
+                            fadeOut(animationSpec = tween(250))
+                        },
+                        label = "PlayerViewSwitch"
+                    ) { page ->
+                        if (page == 0) {
+                            PlayerArtwork(song = s, size = 280.dp, isPlaying = isPlaying)
+                        } else {
+                            LyricsCanvasView(
+                                song = s,
+                                positionMs = position.toLong(),
+                                onSeek = { controller?.seekTo(it) },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
 
@@ -471,7 +485,7 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     for (i in 0..1) {
-                        val isSelected = playerPagerState.currentPage == i
+                        val isSelected = playerViewPage == i
                         val targetWidth = if (isSelected) 18.dp else 6.dp
                         val widthAnim by animateDpAsState(
                             targetValue = targetWidth,
@@ -487,7 +501,7 @@ fun PlayerScreen(
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(color)
                                 .clickable {
-                                    scope.launch { playerPagerState.animateScrollToPage(i) }
+                                    playerViewPage = i
                                 }
                         )
                     }
@@ -529,7 +543,7 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Action row: ♥ ℹ playlist 🔍 ⋯ repeat shuffle
+                // Clean action row: Favorite, Repeat, Shuffle, 3-dot Menu (no clutter!)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -540,52 +554,6 @@ fun PlayerScreen(
                             imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             contentDescription = "Favorite",
                             tint = if (isFavorite) TideColors.error else TideColors.textPrimary.copy(alpha = 0.8f),
-                        )
-                    }
-                    IconButton(onClick = { showInfoSheet = true }) {
-                        Icon(Icons.Rounded.Info, "Info", tint = TideColors.textPrimary.copy(alpha = 0.8f))
-                    }
-                    IconButton(onClick = { showPlaylistDialog = true }) {
-                        Icon(Icons.Rounded.PlaylistAdd, "Add to Playlist", tint = TideColors.textPrimary.copy(alpha = 0.8f))
-                    }
-                    IconButton(
-                        onClick = {
-                            try {
-                                onNavigate(com.example.tidemusic.Search)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Could not open search", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    ) {
-                        Icon(Icons.Rounded.Search, "Search", tint = TideColors.textPrimary.copy(alpha = 0.8f))
-                    }
-                    Box {
-                        IconButton(onClick = { overflowOpen = true }) {
-                            Icon(Icons.Rounded.MoreHoriz, "More", tint = TideColors.textPrimary.copy(alpha = 0.8f))
-                        }
-                        PlayerOverflowMenu(
-                            expanded = overflowOpen,
-                            onDismiss = { overflowOpen = false },
-                            song = s,
-                            onSpeedPitch = { showSpeedDialog = true },
-                            onAddToQueue = {
-                                viewModel.addToQueue(s)
-                                Toast.makeText(context, "Added to queue", Toast.LENGTH_SHORT).show()
-                            },
-                            onAddToPlaylists = { showPlaylistDialog = true },
-                            onShare = { shareSongSafe(context, s) },
-                            onRingtone = { setAsRingtoneSafe(context, s) },
-                            onDelete = {
-                                viewModel.deletePermanently(s.id)
-                                Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
-                            },
-                            onEqualizer = { onNavigate(com.example.tidemusic.Equalizer) },
-                            onSleepTimer = { onNavigate(com.example.tidemusic.SleepTimer) },
-                            onSettings = { onNavigate(com.example.tidemusic.Settings) },
-                            onEditTags = { showTagEditorDialog = true },
-                            onBookmarks = { showBookmarksDialog = true },
-                            onAbRepeat = { showAbRepeatDialog = true },
-                            onShowLyrics = { showLyricsDialog = true },
                         )
                     }
                     IconButton(
@@ -634,6 +602,36 @@ fun PlayerScreen(
                             imageVector = if (shuffle) Icons.Rounded.Shuffle else Icons.Rounded.SwapHoriz,
                             contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
                             tint = if (shuffle) TideColors.accent else TideColors.textPrimary.copy(alpha = 0.8f),
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { overflowOpen = true }) {
+                            Icon(Icons.Rounded.MoreHoriz, "More", tint = TideColors.textPrimary.copy(alpha = 0.8f))
+                        }
+                        PlayerOverflowMenu(
+                            expanded = overflowOpen,
+                            onDismiss = { overflowOpen = false },
+                            song = s,
+                            onSpeedPitch = { showSpeedDialog = true },
+                            onAddToQueue = {
+                                viewModel.addToQueue(s)
+                                Toast.makeText(context, "Added to queue", Toast.LENGTH_SHORT).show()
+                            },
+                            onAddToPlaylists = { showPlaylistDialog = true },
+                            onSongDetails = { showInfoSheet = true },
+                            onShare = { shareSongSafe(context, s) },
+                            onRingtone = { setAsRingtoneSafe(context, s) },
+                            onDelete = {
+                                viewModel.deletePermanently(s.id)
+                                Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+                            },
+                            onEqualizer = { onNavigate(com.example.tidemusic.Equalizer) },
+                            onSleepTimer = { onNavigate(com.example.tidemusic.SleepTimer) },
+                            onSettings = { onNavigate(com.example.tidemusic.Settings) },
+                            onEditTags = { showTagEditorDialog = true },
+                            onBookmarks = { showBookmarksDialog = true },
+                            onAbRepeat = { showAbRepeatDialog = true },
+                            onShowLyrics = { showLyricsDialog = true },
                         )
                     }
                 }
@@ -747,107 +745,102 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Transport
+                // Transport controls: Previous, Play/Pause, Next
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    var lastVolumeDismissTime by remember { mutableLongStateOf(0L) }
-
-                    Box {
-                        IconButton(
-                            onClick = {
-                                val now = System.currentTimeMillis()
-                                if (now - lastVolumeDismissTime > 250L) {
-                                    showVolumePopup = !showVolumePopup
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.VolumeUp,
-                                contentDescription = "Volume",
-                                tint = if (showVolumePopup) TideColors.accent else TideColors.textPrimary,
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
-                        if (showVolumePopup) {
-                            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                            var currentVol by remember {
-                                mutableFloatStateOf((audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0).toFloat())
-                            }
-                            val maxVol = remember {
-                                (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).toFloat()
-                            }
-
-                            Popup(
-                                alignment = Alignment.TopStart,
-                                offset = IntOffset(0, -95),
-                                onDismissRequest = {
-                                    lastVolumeDismissTime = System.currentTimeMillis()
-                                    showVolumePopup = false
-                                },
-                                properties = PopupProperties(
-                                    focusable = false,
-                                    dismissOnClickOutside = true,
-                                    dismissOnBackPress = true,
-                                ),
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .width(240.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(TideColors.surfaceElevated.copy(alpha = 0.96f))
-                                        .border(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    com.example.tidemusic.ui.equalizer.ThinLineHorizontalSlider(
-                                        value = currentVol / maxVol.coerceAtLeast(1f),
-                                        onValueChange = { fraction ->
-                                            val newVol = (fraction * maxVol).toInt()
-                                            currentVol = newVol.toFloat()
-                                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                    Text(
-                                        text = "${((currentVol / maxVol.coerceAtLeast(1f)) * 100).toInt()}%",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                        ),
-                                        color = TideColors.accent,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    IconButton(onClick = { ServiceLocator.playbackController.previous() }) {
-                        Icon(Icons.Rounded.SkipPrevious, "Previous", tint = TideColors.textPrimary, modifier = Modifier.size(40.dp))
+                    IconButton(
+                        onClick = { ServiceLocator.playbackController.previous() },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Rounded.SkipPrevious, "Previous", tint = TideColors.textPrimary, modifier = Modifier.size(38.dp))
                     }
                     IconButton(
                         onClick = { ServiceLocator.playbackController.togglePlayPause() },
-                        modifier = Modifier.size(64.dp),
+                        modifier = Modifier.size(72.dp),
                     ) {
                         Icon(
                             if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             if (isPlaying) "Pause" else "Play",
                             tint = TideColors.textPrimary,
-                            modifier = Modifier.size(54.dp),
+                            modifier = Modifier.size(56.dp),
                         )
                     }
-                    IconButton(onClick = { ServiceLocator.playbackController.next() }) {
-                        Icon(Icons.Rounded.SkipNext, "Next", tint = TideColors.textPrimary, modifier = Modifier.size(40.dp))
-                    }
-                    IconButton(onClick = { onNavigate(com.example.tidemusic.Equalizer) }) {
-                        Icon(Icons.Rounded.Equalizer, "Equalizer", tint = TideColors.textPrimary, modifier = Modifier.size(26.dp))
+                    IconButton(
+                        onClick = { ServiceLocator.playbackController.next() },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Rounded.SkipNext, "Next", tint = TideColors.textPrimary, modifier = Modifier.size(38.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(22.dp))
+
+                // Always-open sound slider at the bottom of the Player section
+                val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager }
+                var currentVol by remember {
+                    mutableFloatStateOf((audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0).toFloat())
+                }
+                val maxVol = remember {
+                    (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).toFloat()
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = {
+                            val newVol = if (currentVol > 0f) 0 else (maxVol * 0.3f).toInt()
+                            currentVol = newVol.toFloat()
+                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (currentVol == 0f) Icons.AutoMirrored.Rounded.VolumeMute else Icons.AutoMirrored.Rounded.VolumeDown,
+                            contentDescription = "Mute/Unmute",
+                            tint = TideColors.textSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    Spacer(Modifier.width(8.dp))
+
+                    com.example.tidemusic.ui.equalizer.ThinLineHorizontalSlider(
+                        value = (currentVol / maxVol.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                        onValueChange = { fraction ->
+                            val newVol = (fraction * maxVol).toInt().coerceIn(0, maxVol.toInt())
+                            currentVol = newVol.toFloat()
+                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    Spacer(Modifier.width(8.dp))
+
+                    IconButton(
+                        onClick = {
+                            val newVol = maxVol.toInt()
+                            currentVol = newVol.toFloat()
+                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                            contentDescription = "Max Volume",
+                            tint = TideColors.textSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -1019,6 +1012,7 @@ private fun PlayerOverflowMenu(
     onBookmarks: () -> Unit,
     onAbRepeat: () -> Unit,
     onShowLyrics: () -> Unit,
+    onSongDetails: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1095,6 +1089,10 @@ private fun PlayerOverflowMenu(
         CenteredMenuItem(Icons.Rounded.PlaylistAdd, "Add to playlists") {
             onDismiss()
             onAddToPlaylists()
+        }
+        CenteredMenuItem(Icons.Rounded.Info, "Song details") {
+            onDismiss()
+            onSongDetails()
         }
         CenteredMenuDivider()
         CenteredMenuItem(Icons.Rounded.Edit, "Edit tags") {

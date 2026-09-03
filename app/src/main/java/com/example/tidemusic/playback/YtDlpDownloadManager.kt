@@ -65,6 +65,8 @@ class YtDlpDownloadManager(
         return msg ?: "Connected"
     }
 
+    private val activeTasksCount = java.util.concurrent.atomic.AtomicInteger(0)
+
     fun enqueueDownload(
         url: String,
         downloadWithLyrics: Boolean = true,
@@ -92,6 +94,9 @@ class YtDlpDownloadManager(
             if (!taskDir.exists()) {
                 taskDir.mkdirs()
             }
+
+            val active = activeTasksCount.incrementAndGet()
+            DownloadService.update(context, active, 0, url)
 
             try {
                 downloadTaskDao.updateProgress(taskId, "Downloading", 0)
@@ -144,6 +149,7 @@ class YtDlpDownloadManager(
                     val request = buildRequest(downloadWithLyrics)
                     YoutubeDL.getInstance().execute(request, taskId.toString()) { progress, _, _ ->
                         val mappedProgress = (progress * 0.90f).toInt().coerceIn(0, 90)
+                        DownloadService.update(context, activeTasksCount.get(), mappedProgress, url)
                         scope.launch {
                             downloadTaskDao.updateProgress(taskId, "Downloading", mappedProgress)
                         }
@@ -156,6 +162,7 @@ class YtDlpDownloadManager(
                         val fallbackRequest = buildRequest(false)
                         YoutubeDL.getInstance().execute(fallbackRequest, taskId.toString()) { progress, _, _ ->
                             val mappedProgress = (progress * 0.90f).toInt().coerceIn(0, 90)
+                            DownloadService.update(context, activeTasksCount.get(), mappedProgress, url)
                             scope.launch {
                                 downloadTaskDao.updateProgress(taskId, "Downloading Audio", mappedProgress)
                             }
@@ -283,6 +290,13 @@ class YtDlpDownloadManager(
             } catch (e: Exception) {
                 Log.e("YtDlpDownload", "Download failed for $url", e)
                 downloadTaskDao.updateFinal(taskId, "Failed: ${e.message}", null)
+            } finally {
+                val remaining = activeTasksCount.decrementAndGet()
+                if (remaining <= 0) {
+                    DownloadService.stop(context)
+                } else {
+                    DownloadService.update(context, remaining, 100, "Processing queue...")
+                }
             }
         }
     }

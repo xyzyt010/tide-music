@@ -5,14 +5,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,15 +32,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import coil3.compose.AsyncImage
 import com.example.tidemusic.domain.Artist
 import com.example.tidemusic.domain.LibraryRepository
 import com.example.tidemusic.theme.TideColors
@@ -54,9 +60,11 @@ fun ArtistsScreen(
     viewModel: ArtistsViewModel = rememberTideViewModel { ArtistsViewModel(it.repository) },
 ) {
     val rawArtists by viewModel.artists.collectAsState()
-    val distinctArtists = remember(rawArtists) {
+    var isAscending by remember { mutableStateOf(true) }
+
+    val sortedArtists = remember(rawArtists, isAscending) {
         val seen = HashSet<String>()
-        rawArtists.filter { artist ->
+        val filtered = rawArtists.filter { artist ->
             val name = artist.name.trim()
             if (name.isBlank() || name.equals("unknown", ignoreCase = true) || name.equals("<unknown>", ignoreCase = true)) {
                 false
@@ -64,11 +72,44 @@ fun ArtistsScreen(
                 seen.add(name.lowercase())
             }
         }
+        if (isAscending) {
+            filtered.sortedBy { it.name.trim().lowercase() }
+        } else {
+            filtered.sortedByDescending { it.name.trim().lowercase() }
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        com.example.tidemusic.ui.common.ThinTopBar(title = "Artists")
-        if (distinctArtists.isEmpty()) {
+        com.example.tidemusic.ui.common.ThinTopBar(
+            title = "Artists",
+            trailing = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { isAscending = !isAscending }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Sort,
+                        contentDescription = "Toggle Sort",
+                        tint = TideColors.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (isAscending) "A → Z" else "Z → A",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                        ),
+                        color = TideColors.accent,
+                    )
+                }
+            }
+        )
+
+        if (sortedArtists.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
                     text = "No artists found.\nSongs need valid artist metadata tags.",
@@ -79,14 +120,21 @@ fun ArtistsScreen(
                 )
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f),
             ) {
-                items(distinctArtists, key = { it.id }) { artist ->
-                    ArtistTile(artist = artist, onClick = { onArtistClick(artist.id, artist.name) })
+                items(sortedArtists, key = { it.id }) { artist ->
+                    ArtistListRow(
+                        artist = artist,
+                        onClick = { onArtistClick(artist.id, artist.name) }
+                    )
+                    HorizontalDivider(
+                        color = TideColors.outline.copy(alpha = 0.5f),
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp)
+                    )
                 }
             }
         }
@@ -94,73 +142,45 @@ fun ArtistsScreen(
 }
 
 @Composable
-private fun ArtistTile(artist: Artist, onClick: () -> Unit) {
-    val artworkModel: Any? = remember(artist.id, artist.artworkUri) {
-        val uri = artist.artworkUri
-        if (uri != null && (uri.startsWith("content://") || uri.startsWith("http://") || uri.startsWith("https://"))) {
-            android.net.Uri.parse(uri)
-        } else if (!uri.isNullOrBlank()) {
-            com.example.tidemusic.util.SongArtworkRequest(
-                songId = artist.id,
-                filePath = uri,
-                uriString = "",
-                dateModified = 0L,
-            )
-        } else {
-            null
-        }
-    }
-    var imageSuccess by remember(artist.id) { mutableStateOf(false) }
-
-    Column(
+private fun ArtistListRow(
+    artist: Artist,
+    onClick: () -> Unit,
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .aspectRatio(1f)
-                .clip(CircleShape)
-                .background(TideColors.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (artworkModel != null) {
-                AsyncImage(
-                    model = artworkModel,
-                    contentDescription = artist.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    onState = { state ->
-                        imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
-                    },
-                )
-            }
-            if (!imageSuccess) {
-                com.example.tidemusic.ui.common.VinylDiscPlaceholder(
-                    modifier = Modifier.fillMaxSize(0.7f),
-                    spinning = false,
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = artist.name.takeIf { it.isNotBlank() } ?: "Unknown Artist",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                ),
+                color = TideColors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${artist.trackCount} ${if (artist.trackCount == 1) "song" else "songs"}",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 13.sp,
+                ),
+                color = TideColors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(
-            text = artist.name.takeIf { it.isNotBlank() } ?: "Unknown Artist",
-            style = MaterialTheme.typography.bodyMedium,
-            color = TideColors.textPrimary,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            text = "${artist.trackCount} ${if (artist.trackCount == 1) "song" else "songs"}",
-            style = MaterialTheme.typography.bodySmall,
-            color = TideColors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = TideColors.textSecondary.copy(alpha = 0.6f),
+            modifier = Modifier.size(20.dp),
         )
     }
 }

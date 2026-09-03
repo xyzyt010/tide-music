@@ -102,6 +102,10 @@ class RawFileScanner {
                                 } catch (_: Exception) {}
                             }
 
+                            val (parsedArtist, parsedTitle) = MediaStoreScanner.parseArtistAndTitle(title, artist, file.name)
+                            title = parsedTitle
+                            artist = parsedArtist
+
                             out.add(
                                 MediaStoreScanner.ScannedTrack(
                                     id = trackId,

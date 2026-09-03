@@ -94,8 +94,9 @@ class MediaStoreScanner(private val context: Context) {
                     val id = if (idCol != -1) c.getLong(idCol) else 0L
                     val data = if (dataCol != -1) c.getString(dataCol) ?: "" else ""
                     val displayName = if (nameCol != -1) c.getString(nameCol) ?: "" else ""
-                    val title = (if (titleCol != -1) c.getString(titleCol) else null)?.takeIf { it.isNotBlank() } ?: displayName.ifBlank { "Unknown" }
-                    val artist = (if (artistCol != -1) c.getString(artistCol) else null)?.takeIf { it.isNotBlank() } ?: "Unknown"
+                    val rawTitle = (if (titleCol != -1) c.getString(titleCol) else null)?.takeIf { it.isNotBlank() } ?: displayName.ifBlank { "Unknown" }
+                    val rawArtist = (if (artistCol != -1) c.getString(artistCol) else null)?.takeIf { it.isNotBlank() } ?: "Unknown"
+                    val (artist, title) = parseArtistAndTitle(rawTitle, rawArtist, displayName)
                     val parentFolder = if (data.isNotBlank()) File(data).parentFile?.name else null
                     val rawAlbum = (if (albumCol != -1) c.getString(albumCol) else null)?.trim()
                     val isGeneric = isGenericOrInvalidAlbum(rawAlbum)
@@ -237,5 +238,37 @@ class MediaStoreScanner(private val context: Context) {
         }
 
         return Triple(songs, albums.values.toList(), artists.values.toList())
+    }
+
+    companion object {
+        fun parseArtistAndTitle(rawTitle: String, rawArtist: String, displayName: String): Pair<String, String> {
+            var a = rawArtist.trim()
+            var t = rawTitle.trim().ifBlank { displayName.substringBeforeLast('.').trim().ifBlank { "Unknown" } }
+
+            if (t.contains("-")) {
+                val parts = t.split("-", limit = 2)
+                val candidateArtist = parts[0].trim()
+                val candidateTitle = parts[1].trim()
+                if (candidateArtist.isNotBlank() && candidateTitle.isNotBlank()) {
+                    a = candidateArtist
+                    t = candidateTitle
+                }
+            } else if ((a.isBlank() || a.equals("unknown", ignoreCase = true) || a.equals("<unknown>", ignoreCase = true)) && displayName.contains("-")) {
+                val baseName = displayName.substringBeforeLast('.').trim()
+                if (baseName.contains("-")) {
+                    val parts = baseName.split("-", limit = 2)
+                    val candidateArtist = parts[0].trim()
+                    val candidateTitle = parts[1].trim()
+                    if (candidateArtist.isNotBlank() && candidateTitle.isNotBlank()) {
+                        a = candidateArtist
+                        t = candidateTitle
+                    }
+                }
+            }
+
+            if (a.isBlank()) a = "Unknown"
+            if (t.isBlank()) t = "Unknown"
+            return Pair(a, t)
+        }
     }
 }
