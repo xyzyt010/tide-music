@@ -219,6 +219,13 @@ class LibraryRepository constructor(
     suspend fun setFavorite(id: Long, favorite: Boolean) =
         songDao.setFavorite(id, favorite)
 
+    suspend fun toggleFavorite(id: Long): Boolean = withContext(Dispatchers.IO) {
+        val song = songDao.getById(id) ?: return@withContext false
+        val next = !song.isFavorite
+        songDao.setFavorite(id, next)
+        next
+    }
+
     suspend fun recordPlayedTimestamp(id: Long, ts: Long) =
         songDao.recordPlayedTimestamp(id, ts)
 

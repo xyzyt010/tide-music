@@ -44,6 +44,63 @@ class PlaybackController constructor(
     val currentArtist: String?
         get() = player?.currentMediaItem?.mediaMetadata?.artist?.toString()
 
+    val currentPosition: Long
+        get() = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
+
+    val duration: Long
+        get() = player?.duration?.coerceAtLeast(0L) ?: 0L
+
+    val currentMediaId: Long?
+        get() = player?.currentMediaItem?.mediaId?.toLongOrNull()
+
+    fun toggleFavoriteCurrentSong(onResult: ((Boolean) -> Unit)? = null) {
+        val id = currentMediaId ?: return
+        ioScope.launch {
+            try {
+                val next = repository.toggleFavorite(id)
+                if (onResult != null) {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onResult(next)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PlaybackController", "Error toggling favorite", e)
+            }
+        }
+    }
+
+    fun checkIsFavorite(songId: Long, callback: (Boolean) -> Unit) {
+        ioScope.launch {
+            try {
+                val isFav = repository.getSong(songId)?.isFavorite == true
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    callback(isFav)
+                }
+            } catch (e: Exception) {
+                Log.e("PlaybackController", "Error checking favorite", e)
+            }
+        }
+    }
+
+    fun playPause() {
+        val p = player ?: return
+        try {
+            if (p.isPlaying) {
+                p.pause()
+            } else {
+                p.play()
+            }
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error toggling play/pause", e)
+        }
+    }
+
+    suspend fun isCurrentSongFavorite(): Boolean {
+        val id = currentMediaId ?: return false
+        return repository.getSong(id)?.isFavorite == true
+    }
+
     /** Bound during [PlaybackService.onCreate]; released during onDestroy. */
     fun attachPlayer(p: Player) {
         if (player === p) return

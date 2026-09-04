@@ -52,6 +52,23 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
+        var isCurrentSongFavorite = false
+        val closeCommandButton = androidx.media3.session.CommandButton.Builder()
+            .setDisplayName("Close")
+            .setIconResId(com.example.tidemusic.R.drawable.ic_close_notification)
+            .setSessionCommand(androidx.media3.session.SessionCommand("ACTION_CLOSE", android.os.Bundle.EMPTY))
+            .build()
+
+        fun buildFavoriteCommandButton(isFav: Boolean): androidx.media3.session.CommandButton =
+            androidx.media3.session.CommandButton.Builder()
+                .setDisplayName(if (isFav) "Favorited" else "Favorite")
+                .setIconResId(
+                    if (isFav) com.example.tidemusic.R.drawable.ic_notif_favorite_filled
+                    else com.example.tidemusic.R.drawable.ic_notif_favorite_border
+                )
+                .setSessionCommand(androidx.media3.session.SessionCommand("ACTION_TOGGLE_FAVORITE", android.os.Bundle.EMPTY))
+                .build()
+
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
@@ -62,12 +79,33 @@ class PlaybackService : MediaSessionService() {
                         val item = exo.currentMediaItem
                         val filePath = item?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH)
                         val uriStr = item?.localConfiguration?.uri?.toString()
-                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, isPlaying)
+                        val title = item?.mediaMetadata?.title?.toString()
+                        val artist = item?.mediaMetadata?.artist?.toString()
+                        val mediaId = item?.mediaId?.toLongOrNull() ?: -1L
+                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, title, artist, mediaId, isPlaying)
                     }
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         val filePath = mediaItem?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH)
                         val uriStr = mediaItem?.localConfiguration?.uri?.toString()
-                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, exo.isPlaying)
+                        val title = mediaItem?.mediaMetadata?.title?.toString()
+                        val artist = mediaItem?.mediaMetadata?.artist?.toString()
+                        val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: -1L
+                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, title, artist, mediaId, exo.isPlaying)
+
+                        if (mediaId > 0L) {
+                            GlobalScope.launch(Dispatchers.IO) {
+                                val fav = ServiceLocator.repository.getSong(mediaId)?.isFavorite == true
+                                isCurrentSongFavorite = fav
+                                withContext(Dispatchers.Main) {
+                                    mediaSession?.setCustomLayout(
+                                        com.google.common.collect.ImmutableList.of(
+                                            buildFavoriteCommandButton(fav),
+                                            closeCommandButton
+                                        )
+                                    )
+                                }
+                            }
+                        }
                     }
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
@@ -89,22 +127,15 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val closeCommandButton = androidx.media3.session.CommandButton.Builder()
-            .setDisplayName("Close")
-            .setIconResId(com.example.tidemusic.R.drawable.ic_close_notification)
-            .setSessionCommand(androidx.media3.session.SessionCommand("ACTION_CLOSE", android.os.Bundle.EMPTY))
-            .build()
-
         mediaSession = MediaSession.Builder(this, player!!)
             .setSessionActivity(sessionActivity)
-            // Custom artwork loader: resolves the tide-art:// artwork URIs set on every
-            // MediaItem (embedded art, else deterministic per-song placeholder). Guarantees
-            // the notification / lock screen always receive fresh, per-song bitmaps —
-            // fixes the stale "one song's image everywhere" artwork bug.
             .setBitmapLoader(
                 androidx.media3.session.CacheBitmapLoader(TideArtworkBitmapLoader(this))
             )
-            .setCustomLayout(com.google.common.collect.ImmutableList.of(closeCommandButton))
+            .setCustomLayout(com.google.common.collect.ImmutableList.of(
+                buildFavoriteCommandButton(false),
+                closeCommandButton
+            ))
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
                     session: MediaSession,
@@ -113,6 +144,7 @@ class PlaybackService : MediaSessionService() {
                     val connectionResult = super.onConnect(session, controller)
                     val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
                     availableSessionCommands.add(androidx.media3.session.SessionCommand("ACTION_CLOSE", android.os.Bundle.EMPTY))
+                    availableSessionCommands.add(androidx.media3.session.SessionCommand("ACTION_TOGGLE_FAVORITE", android.os.Bundle.EMPTY))
                     return MediaSession.ConnectionResult.accept(
                         availableSessionCommands.build(),
                         connectionResult.availablePlayerCommands
@@ -136,13 +168,37 @@ class PlaybackService : MediaSessionService() {
                         return com.google.common.util.concurrent.Futures.immediateFuture(
                             androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS)
                         )
+                    } else if (customCommand.customAction == "ACTION_TOGGLE_FAVORITE") {
+                        val currentItem = player?.currentMediaItem
+                        val songId = currentItem?.mediaId?.toLongOrNull()
+                        if (songId != null) {
+                            GlobalScope.launch(Dispatchers.IO) {
+                                try {
+                                    val nextFav = ServiceLocator.repository.toggleFavorite(songId)
+                                    isCurrentSongFavorite = nextFav
+                                    withContext(Dispatchers.Main) {
+                                        mediaSession?.setCustomLayout(
+                                            com.google.common.collect.ImmutableList.of(
+                                                buildFavoriteCommandButton(nextFav),
+                                                closeCommandButton
+                                            )
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("PlaybackService", "Error toggling favorite", e)
+                                }
+                            }
+                        }
+                        return com.google.common.util.concurrent.Futures.immediateFuture(
+                            androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS)
+                        )
                     }
                     return super.onCustomCommand(session, controller, customCommand, args)
                 }
             })
             .build()
 
-        // Full-bleed custom icons so prev / play-pause / next read larger in the notification drawer.
+        // 4 prominent buttons: Favorite, Previous, Play/Pause, Next
         setMediaNotificationProvider(
             object : androidx.media3.session.DefaultMediaNotificationProvider(this@PlaybackService) {
                 override fun getMediaButtons(
@@ -153,6 +209,10 @@ class PlaybackService : MediaSessionService() {
                 ): com.google.common.collect.ImmutableList<androidx.media3.session.CommandButton> {
                     val buttons = ArrayList<androidx.media3.session.CommandButton>()
 
+                    // 1. Favorite button
+                    buttons.add(buildFavoriteCommandButton(isCurrentSongFavorite))
+
+                    // 2. Previous button
                     if (playerCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) ||
                         playerCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS)
                     ) {
@@ -165,6 +225,7 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
 
+                    // 3. Play / Pause button
                     if (playerCommands.contains(Player.COMMAND_PLAY_PAUSE)) {
                         buttons.add(
                             androidx.media3.session.CommandButton.Builder()
@@ -178,6 +239,7 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
 
+                    // 4. Next button
                     if (playerCommands.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) ||
                         playerCommands.contains(Player.COMMAND_SEEK_TO_NEXT)
                     ) {
@@ -191,7 +253,8 @@ class PlaybackService : MediaSessionService() {
                     }
 
                     for (custom in customLayout) {
-                        if (buttons.none { it.sessionCommand?.customAction == custom.sessionCommand?.customAction }) {
+                        if (custom.sessionCommand?.customAction != "ACTION_TOGGLE_FAVORITE" &&
+                            buttons.none { it.sessionCommand?.customAction == custom.sessionCommand?.customAction }) {
                             buttons.add(custom)
                         }
                     }

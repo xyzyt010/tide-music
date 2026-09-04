@@ -26,22 +26,34 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
+import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
 import com.example.tidemusic.MainActivity;
 import com.example.tidemusic.R;
+import com.example.tidemusic.di.ServiceLocator;
 import com.example.tidemusic.util.AudioArtworkFetcher;
 
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Pure Java system overlay service for the top Dynamic Island capsule widget.
- * Renders the mini black capsule at the top camera punch hole cutout across all apps.
+ * Pure Java system overlay service providing the Dynamic Island capsule widget.
+ *
+ * Supports:
+ * - Collapsed mini black capsule around the top camera cutout with 7 animated green equalizer bars.
+ * - Tap to expand into a rich floating music player card with seekable scrubber, playback controls & favorite toggle.
+ * - Swipe right-to-left to dismiss/close.
+ * - Tap outside or swipe up to collapse back to the mini capsule.
+ * - Tap artwork/title to open full Tide Music player.
  */
 public class FloatingPillService extends Service {
 
@@ -51,22 +63,62 @@ public class FloatingPillService extends Service {
 
     private static final String EXTRA_FILE_PATH = "extra_file_path";
     private static final String EXTRA_URI = "extra_uri";
+    private static final String EXTRA_TITLE = "extra_title";
+    private static final String EXTRA_ARTIST = "extra_artist";
+    private static final String EXTRA_MEDIA_ID = "extra_media_id";
     private static final String EXTRA_IS_PLAYING = "extra_is_playing";
 
     private WindowManager windowManager;
-    private View pillRootView;
-    private ImageView artView;
-    private SevenBarEqualizerView equalizerView;
     private WindowManager.LayoutParams layoutParams;
+
+    // View Hierarchy
+    private FrameLayout rootContainer;
+    private LinearLayout miniPillView;
+    private ImageView miniArtView;
+    private SevenBarEqualizerView miniEqualizerView;
+
+    private LinearLayout expandedCardView;
+    private ImageView expandedArtView;
+    private TextView tvTitle;
+    private TextView tvArtist;
+    private TextView tvCurrentTime;
+    private TextView tvTotalTime;
+    private SeekBar seekBar;
+    private ImageView btnFavorite;
+    private ImageView btnPlayPause;
 
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private String currentFilePath = "";
     private String currentUriString = "";
+    private String currentTitle = "";
+    private String currentArtist = "";
+    private long currentMediaId = -1L;
     private boolean isPlaying = false;
+    private boolean isExpanded = false;
+    private boolean isCurrentSongFavorite = false;
+    private boolean isUserSeeking = false;
+    private Bitmap cachedArtwork = null;
+
+    private final Runnable progressUpdater = new Runnable() {
+        @Override
+        public void run() {
+            if (isExpanded && rootContainer != null) {
+                updateTimelineProgress();
+                if (isPlaying) {
+                    mainHandler.postDelayed(this, 500);
+                }
+            }
+        }
+    };
 
     public static void showOrUpdate(Context context, @Nullable String filePath, @Nullable String uriString, boolean isPlaying) {
+        showOrUpdate(context, filePath, uriString, null, null, -1L, isPlaying);
+    }
+
+    public static void showOrUpdate(Context context, @Nullable String filePath, @Nullable String uriString,
+                                    @Nullable String title, @Nullable String artist, long mediaId, boolean isPlaying) {
         if (!Settings.canDrawOverlays(context)) {
             Log.d(TAG, "Cannot draw overlays: permission not granted");
             return;
@@ -78,6 +130,9 @@ public class FloatingPillService extends Service {
                 intent.setAction(ACTION_UPDATE);
                 intent.putExtra(EXTRA_FILE_PATH, filePath != null ? filePath : "");
                 intent.putExtra(EXTRA_URI, uriString != null ? uriString : "");
+                intent.putExtra(EXTRA_TITLE, title != null ? title : "");
+                intent.putExtra(EXTRA_ARTIST, artist != null ? artist : "");
+                intent.putExtra(EXTRA_MEDIA_ID, mediaId);
                 intent.putExtra(EXTRA_IS_PLAYING, true);
                 context.startService(intent);
             } else {
@@ -114,9 +169,17 @@ public class FloatingPillService extends Service {
         }
 
         if (ACTION_UPDATE.equals(intent.getAction())) {
-            currentFilePath = intent.getStringExtra(EXTRA_FILE_PATH);
-            currentUriString = intent.getStringExtra(EXTRA_URI);
+            String newFilePath = intent.getStringExtra(EXTRA_FILE_PATH);
+            String newUriString = intent.getStringExtra(EXTRA_URI);
+            currentTitle = intent.getStringExtra(EXTRA_TITLE);
+            currentArtist = intent.getStringExtra(EXTRA_ARTIST);
+            long newMediaId = intent.getLongExtra(EXTRA_MEDIA_ID, -1L);
             isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, false);
+
+            boolean songChanged = (newMediaId != currentMediaId) || (!newFilePath.equals(currentFilePath));
+            currentFilePath = newFilePath;
+            currentUriString = newUriString;
+            currentMediaId = newMediaId;
 
             if (!Settings.canDrawOverlays(this)) {
                 removeOverlay();
@@ -125,7 +188,7 @@ public class FloatingPillService extends Service {
             }
 
             ensureOverlayCreated();
-            updateContent();
+            updateContent(songChanged);
         }
 
         return START_STICKY;
@@ -133,7 +196,7 @@ public class FloatingPillService extends Service {
 
     @SuppressLint("ClickableViewAccessibility")
     private void ensureOverlayCreated() {
-        if (pillRootView != null) return;
+        if (rootContainer != null) return;
 
         int layoutFlag;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -157,54 +220,111 @@ public class FloatingPillService extends Service {
 
         layoutParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         layoutParams.x = 0;
-        layoutParams.y = dpToPx(8);
+        layoutParams.y = dpToPx(2);
 
         // Crucial for modern Android 9-16 punch hole and camera cutout support
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         }
 
-        // Build the pill layout
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.HORIZONTAL);
-        root.setGravity(Gravity.CENTER_VERTICAL);
-        root.setPadding(dpToPx(8), dpToPx(4), dpToPx(9), dpToPx(4));
+        rootContainer = new FrameLayout(this);
+        rootContainer.setClipChildren(false);
+        rootContainer.setClipToPadding(false);
 
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.RECTANGLE);
-        bg.setCornerRadius(dpToPx(16));
-        bg.setColor(Color.parseColor("#0C0C0C"));
-        bg.setStroke(dpToPx(1), Color.parseColor("#262626"));
-        root.setBackground(bg);
+        // Outside touch & swipe detection
+        rootContainer.setOnTouchListener(new View.OnTouchListener() {
+            private float downY, downX;
 
-        // Artwork image
-        artView = new ImageView(this);
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                    if (isExpanded) {
+                        collapseToPill();
+                        return true;
+                    }
+                }
+                if (isExpanded) {
+                    switch (event.getAction()) {
+                        case MotionEvent.ACTION_DOWN:
+                            downY = event.getRawY();
+                            downX = event.getRawX();
+                            break;
+                        case MotionEvent.ACTION_UP:
+                            float dy = event.getRawY() - downY;
+                            float dx = event.getRawX() - downX;
+                            if (dy < -dpToPx(40) || dx < -dpToPx(60)) {
+                                collapseToPill();
+                                return true;
+                            }
+                            break;
+                    }
+                }
+                return false;
+            }
+        });
+
+        // 1. Build Collapsed Mini Pill View
+        buildMiniPillView();
+        rootContainer.addView(miniPillView);
+
+        // 2. Build Expanded Card View
+        buildExpandedCardView();
+        expandedCardView.setVisibility(View.GONE);
+        rootContainer.addView(expandedCardView);
+
+        try {
+            windowManager.addView(rootContainer, layoutParams);
+            if (isPlaying && miniEqualizerView != null) {
+                miniEqualizerView.start();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to add floating capsule overlay", e);
+            rootContainer = null;
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private void buildMiniPillView() {
+        miniPillView = new LinearLayout(this);
+        miniPillView.setOrientation(LinearLayout.HORIZONTAL);
+        miniPillView.setGravity(Gravity.CENTER_VERTICAL);
+        miniPillView.setPadding(dpToPx(7), dpToPx(3), dpToPx(8), dpToPx(3));
+
+        GradientDrawable pillBg = new GradientDrawable();
+        pillBg.setShape(GradientDrawable.RECTANGLE);
+        pillBg.setCornerRadius(dpToPx(16));
+        pillBg.setColor(Color.parseColor("#000000"));
+        pillBg.setStroke(dpToPx(1), Color.parseColor("#1C1C1C"));
+        miniPillView.setBackground(pillBg);
+
+        // Thumbnail artwork
+        miniArtView = new ImageView(this);
         int artSize = dpToPx(20);
         LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(artSize, artSize);
-        artLp.setMarginEnd(dpToPx(7));
-        artView.setLayoutParams(artLp);
-        artView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        artView.setImageResource(R.drawable.ic_music_notification);
+        artLp.setMarginEnd(dpToPx(6));
+        miniArtView.setLayoutParams(artLp);
+        miniArtView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        miniArtView.setImageResource(R.drawable.ic_music_notification);
 
         GradientDrawable artBg = new GradientDrawable();
         artBg.setShape(GradientDrawable.RECTANGLE);
-        artBg.setCornerRadius(dpToPx(5));
+        artBg.setCornerRadius(dpToPx(4));
         artBg.setColor(Color.parseColor("#181818"));
-        artView.setBackground(artBg);
-        artView.setClipToOutline(true);
-        root.addView(artView);
+        miniArtView.setBackground(artBg);
+        miniArtView.setClipToOutline(true);
+        miniPillView.addView(miniArtView);
 
-        // 7 thin equalizer bars
-        equalizerView = new SevenBarEqualizerView(this);
+        // 7 thin animated equalizer bars
+        miniEqualizerView = new SevenBarEqualizerView(this);
         LinearLayout.LayoutParams eqLp = new LinearLayout.LayoutParams(dpToPx(22), dpToPx(14));
-        equalizerView.setLayoutParams(eqLp);
-        root.addView(equalizerView);
+        miniEqualizerView.setLayoutParams(eqLp);
+        miniPillView.addView(miniEqualizerView);
 
-        // Touch listener supporting both tap (open player) and drag (reposition along top bar)
-        root.setOnTouchListener(new View.OnTouchListener() {
+        // Interactive Gestures on Mini Pill: Tap to Expand, Swipe Left to Dismiss, Drag to Move
+        miniPillView.setOnTouchListener(new View.OnTouchListener() {
             private int initialX, initialY;
             private float initialTouchX, initialTouchY;
-            private boolean isClick = true;
+            private long touchDownTime;
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -214,101 +334,497 @@ public class FloatingPillService extends Service {
                         initialY = layoutParams.y;
                         initialTouchX = event.getRawX();
                         initialTouchY = event.getRawY();
-                        isClick = true;
+                        touchDownTime = System.currentTimeMillis();
                         return true;
 
                     case MotionEvent.ACTION_MOVE:
                         float dx = event.getRawX() - initialTouchX;
                         float dy = event.getRawY() - initialTouchY;
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                            isClick = false;
+                        if (Math.abs(dx) > dpToPx(8) || Math.abs(dy) > dpToPx(8)) {
                             layoutParams.x = initialX + (int) dx;
                             layoutParams.y = Math.max(0, initialY + (int) dy);
-                            if (windowManager != null && pillRootView != null) {
-                                windowManager.updateViewLayout(pillRootView, layoutParams);
+                            if (windowManager != null && rootContainer != null) {
+                                windowManager.updateViewLayout(rootContainer, layoutParams);
                             }
                         }
                         return true;
 
                     case MotionEvent.ACTION_UP:
-                        if (isClick) {
-                            try {
-                                Intent launchIntent = new Intent(FloatingPillService.this, MainActivity.class);
-                                launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                                launchIntent.setData(Uri.parse("tidemusic://player"));
-                                startActivity(launchIntent);
-                            } catch (Exception e) {
-                                Log.e(TAG, "Error launching player from floating pill", e);
-                            }
+                        float totalDx = event.getRawX() - initialTouchX;
+                        float totalDy = event.getRawY() - initialTouchY;
+                        long elapsed = System.currentTimeMillis() - touchDownTime;
+
+                        // Swipe right-to-left dismissal
+                        if (totalDx < -dpToPx(50) && Math.abs(totalDy) < dpToPx(40)) {
+                            hide(FloatingPillService.this);
+                            return true;
+                        }
+
+                        // Tap to expand into rich floating player card
+                        if (Math.abs(totalDx) < dpToPx(12) && Math.abs(totalDy) < dpToPx(12) && elapsed < 400) {
+                            expandCard();
+                            return true;
                         }
                         return true;
                 }
                 return false;
             }
         });
+    }
 
-        pillRootView = root;
+    private void buildExpandedCardView() {
+        expandedCardView = new LinearLayout(this);
+        expandedCardView.setOrientation(LinearLayout.VERTICAL);
+        expandedCardView.setPadding(dpToPx(16), dpToPx(14), dpToPx(16), dpToPx(14));
+
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setShape(GradientDrawable.RECTANGLE);
+        cardBg.setCornerRadius(dpToPx(24));
+        cardBg.setColor(Color.parseColor("#121212"));
+        cardBg.setStroke(dpToPx(1), Color.parseColor("#262626"));
+        expandedCardView.setBackground(cardBg);
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int cardWidth = Math.min(dpToPx(340), dm.widthPixels - dpToPx(24));
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(cardWidth, FrameLayout.LayoutParams.WRAP_CONTENT);
+        expandedCardView.setLayoutParams(cardLp);
+
+        // ── Header Row (Art, Title & Artist, Tide Badge) ─────────────────────
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        expandedArtView = new ImageView(this);
+        int artSize = dpToPx(46);
+        LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(artSize, artSize);
+        expandedArtView.setLayoutParams(artLp);
+        expandedArtView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        expandedArtView.setImageResource(R.drawable.ic_music_notification);
+        GradientDrawable artBg = new GradientDrawable();
+        artBg.setShape(GradientDrawable.RECTANGLE);
+        artBg.setCornerRadius(dpToPx(8));
+        artBg.setColor(Color.parseColor("#1E1E1E"));
+        expandedArtView.setBackground(artBg);
+        expandedArtView.setClipToOutline(true);
+        headerRow.addView(expandedArtView);
+
+        LinearLayout textCol = new LinearLayout(this);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        textLp.setMarginStart(dpToPx(12));
+        textLp.setMarginEnd(dpToPx(8));
+        textCol.setLayoutParams(textLp);
+
+        tvTitle = new TextView(this);
+        tvTitle.setText(currentTitle.isEmpty() ? "Tide Music" : currentTitle);
+        tvTitle.setTextColor(Color.WHITE);
+        tvTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setSingleLine(true);
+        tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        textCol.addView(tvTitle);
+
+        tvArtist = new TextView(this);
+        tvArtist.setText(currentArtist.isEmpty() ? "Ready to play" : currentArtist);
+        tvArtist.setTextColor(Color.parseColor("#A0A0A0"));
+        tvArtist.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        tvArtist.setSingleLine(true);
+        tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tvArtist.setPadding(0, dpToPx(2), 0, 0);
+        textCol.addView(tvArtist);
+
+        headerRow.addView(textCol);
+
+        // App logo / badge on far right
+        ImageView ivLogo = new ImageView(this);
+        int logoSize = dpToPx(22);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(logoSize, logoSize);
+        ivLogo.setLayoutParams(logoLp);
+        ivLogo.setImageResource(R.drawable.ic_music_notification);
+        ivLogo.setColorFilter(Color.parseColor("#26B8FF"));
+        headerRow.addView(ivLogo);
+
+        // Tapping header opens full Tide Music player screen
+        headerRow.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                launchPlayerScreen();
+                collapseToPill();
+            }
+        });
+        expandedCardView.addView(headerRow);
+
+        // ── Timeline / Scrubber Row ──────────────────────────────────────────
+        LinearLayout timelineRow = new LinearLayout(this);
+        timelineRow.setOrientation(LinearLayout.HORIZONTAL);
+        timelineRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tlLp.topMargin = dpToPx(10);
+        timelineRow.setLayoutParams(tlLp);
+
+        tvCurrentTime = new TextView(this);
+        tvCurrentTime.setText("00:00");
+        tvCurrentTime.setTextColor(Color.parseColor("#888888"));
+        tvCurrentTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+        timelineRow.addView(tvCurrentTime);
+
+        seekBar = new SeekBar(this);
+        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        sbLp.setMarginStart(dpToPx(8));
+        sbLp.setMarginEnd(dpToPx(8));
+        seekBar.setLayoutParams(sbLp);
+        seekBar.setProgressDrawable(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.seek_progress_drawable));
+        seekBar.setThumb(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.seek_thumb));
+        seekBar.setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4));
+
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    tvCurrentTime.setText(formatTime(progress));
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                isUserSeeking = true;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                isUserSeeking = false;
+                try {
+                    PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+                    controller.seekTo(seekBar.getProgress());
+                } catch (Exception e) {
+                    Log.e(TAG, "Error seeking playback", e);
+                }
+            }
+        });
+        timelineRow.addView(seekBar);
+
+        tvTotalTime = new TextView(this);
+        tvTotalTime.setText("00:00");
+        tvTotalTime.setTextColor(Color.parseColor("#888888"));
+        tvTotalTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+        timelineRow.addView(tvTotalTime);
+
+        expandedCardView.addView(timelineRow);
+
+        // ── Controls Row (Favorite, Previous, Play/Pause, Next, Close) ────────
+        LinearLayout controlsRow = new LinearLayout(this);
+        controlsRow.setOrientation(LinearLayout.HORIZONTAL);
+        controlsRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cLp.topMargin = dpToPx(6);
+        controlsRow.setLayoutParams(cLp);
+
+        // 1. Favorite Heart Button
+        btnFavorite = new ImageView(this);
+        int favSize = dpToPx(36);
+        btnFavorite.setLayoutParams(new LinearLayout.LayoutParams(favSize, favSize));
+        btnFavorite.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnFavorite.setImageResource(R.drawable.ic_notif_favorite_border);
+        btnFavorite.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+                    controller.toggleFavoriteCurrentSong(new kotlin.jvm.functions.Function1<Boolean, kotlin.Unit>() {
+                        @Override
+                        public kotlin.Unit invoke(Boolean isFav) {
+                            isCurrentSongFavorite = Boolean.TRUE.equals(isFav);
+                            updateFavoriteIcon();
+                            return kotlin.Unit.INSTANCE;
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.e(TAG, "Error toggling favorite from capsule", e);
+                }
+            }
+        });
+        controlsRow.addView(btnFavorite);
+
+        // Spacer
+        View s1 = new View(this);
+        controlsRow.addView(s1, new LinearLayout.LayoutParams(0, 1, 1f));
+
+        // 2. Previous Button
+        ImageView btnPrev = new ImageView(this);
+        int navSize = dpToPx(38);
+        btnPrev.setLayoutParams(new LinearLayout.LayoutParams(navSize, navSize));
+        btnPrev.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnPrev.setImageResource(R.drawable.ic_notif_prev);
+        btnPrev.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    ServiceLocator.INSTANCE.getPlaybackController().previous();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error seeking previous", e);
+                }
+            }
+        });
+        controlsRow.addView(btnPrev);
+
+        View s2 = new View(this);
+        controlsRow.addView(s2, new LinearLayout.LayoutParams(dpToPx(14), 1));
+
+        // 3. Play / Pause Button (Large circular white button with black icon)
+        btnPlayPause = new ImageView(this);
+        int playSize = dpToPx(48);
+        btnPlayPause.setLayoutParams(new LinearLayout.LayoutParams(playSize, playSize));
+        btnPlayPause.setBackgroundResource(R.drawable.bg_play_circle_white);
+        btnPlayPause.setPadding(dpToPx(11), dpToPx(11), dpToPx(11), dpToPx(11));
+        btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause_black : R.drawable.ic_play_black);
+        btnPlayPause.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    ServiceLocator.INSTANCE.getPlaybackController().playPause();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error toggling play/pause from capsule", e);
+                }
+            }
+        });
+        controlsRow.addView(btnPlayPause);
+
+        View s3 = new View(this);
+        controlsRow.addView(s3, new LinearLayout.LayoutParams(dpToPx(14), 1));
+
+        // 4. Next Button
+        ImageView btnNext = new ImageView(this);
+        btnNext.setLayoutParams(new LinearLayout.LayoutParams(navSize, navSize));
+        btnNext.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnNext.setImageResource(R.drawable.ic_notif_next);
+        btnNext.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    ServiceLocator.INSTANCE.getPlaybackController().next();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error seeking next", e);
+                }
+            }
+        });
+        controlsRow.addView(btnNext);
+
+        // Spacer
+        View s4 = new View(this);
+        controlsRow.addView(s4, new LinearLayout.LayoutParams(0, 1, 1f));
+
+        // 5. Close / Collapse Button
+        ImageView btnClose = new ImageView(this);
+        btnClose.setLayoutParams(new LinearLayout.LayoutParams(favSize, favSize));
+        btnClose.setPadding(dpToPx(7), dpToPx(7), dpToPx(7), dpToPx(7));
+        btnClose.setImageResource(R.drawable.ic_close_notification);
+        btnClose.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                collapseToPill();
+            }
+        });
+        controlsRow.addView(btnClose);
+
+        expandedCardView.addView(controlsRow);
+    }
+
+    private void expandCard() {
+        if (isExpanded || rootContainer == null) return;
+        isExpanded = true;
+
+        miniPillView.setVisibility(View.GONE);
+        expandedCardView.setVisibility(View.VISIBLE);
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int cardWidth = Math.min(dpToPx(340), dm.widthPixels - dpToPx(24));
+
+        layoutParams.width = cardWidth;
+        layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS |
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
+        layoutParams.y = dpToPx(8);
+
         try {
-            windowManager.addView(pillRootView, layoutParams);
-            equalizerView.start();
+            windowManager.updateViewLayout(rootContainer, layoutParams);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to add floating pill overlay", e);
-            pillRootView = null;
+            Log.e(TAG, "Error updating window to expanded", e);
+        }
+
+        updateTimelineProgress();
+        checkFavoriteStatus();
+        mainHandler.post(progressUpdater);
+    }
+
+    private void collapseToPill() {
+        if (!isExpanded || rootContainer == null) return;
+        isExpanded = false;
+        mainHandler.removeCallbacks(progressUpdater);
+
+        expandedCardView.setVisibility(View.GONE);
+        miniPillView.setVisibility(View.VISIBLE);
+
+        layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT;
+        layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        layoutParams.y = dpToPx(2);
+
+        try {
+            windowManager.updateViewLayout(rootContainer, layoutParams);
+            if (isPlaying && miniEqualizerView != null) {
+                miniEqualizerView.start();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating window to collapsed", e);
         }
     }
 
-    private void updateContent() {
-        if (pillRootView == null) return;
+    private void updateContent(boolean songChanged) {
+        if (rootContainer == null) return;
 
-        if (equalizerView != null) {
+        // 1. Equalizer animation state
+        if (miniEqualizerView != null) {
             if (isPlaying) {
-                equalizerView.start();
+                miniEqualizerView.start();
             } else {
-                equalizerView.stop();
+                miniEqualizerView.stop();
             }
         }
 
-        ioExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                Bitmap bmp = null;
-                try {
-                    byte[] bytes = AudioArtworkFetcher.Companion.extractEmbeddedPicture(
-                            currentFilePath,
-                            currentUriString,
-                            FloatingPillService.this
-                    );
-                    if (bytes != null && bytes.length > 0) {
-                        bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    }
-                } catch (Throwable ignored) {}
+        // 2. Play/pause button in expanded card
+        if (btnPlayPause != null) {
+            btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause_black : R.drawable.ic_play_black);
+        }
 
-                final Bitmap finalBmp = bmp;
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (artView != null) {
-                            if (finalBmp != null) {
-                                artView.setImageBitmap(finalBmp);
+        // 3. Text info in expanded card
+        if (tvTitle != null && currentTitle != null && !currentTitle.isEmpty()) {
+            tvTitle.setText(currentTitle);
+        }
+        if (tvArtist != null && currentArtist != null && !currentArtist.isEmpty()) {
+            tvArtist.setText(currentArtist);
+        }
+
+        // 4. Check favorite state on song transition
+        if (songChanged) {
+            checkFavoriteStatus();
+        }
+
+        // 5. Asynchronous Artwork loading
+        if (songChanged || cachedArtwork == null) {
+            ioExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Bitmap bmp = null;
+                    try {
+                        byte[] bytes = AudioArtworkFetcher.Companion.extractEmbeddedPicture(
+                                currentFilePath,
+                                currentUriString,
+                                FloatingPillService.this
+                        );
+                        if (bytes != null && bytes.length > 0) {
+                            bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        }
+                    } catch (Throwable ignored) {}
+
+                    cachedArtwork = bmp;
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (cachedArtwork != null) {
+                                if (miniArtView != null) miniArtView.setImageBitmap(cachedArtwork);
+                                if (expandedArtView != null) expandedArtView.setImageBitmap(cachedArtwork);
                             } else {
-                                artView.setImageResource(R.drawable.ic_music_notification);
+                                if (miniArtView != null) miniArtView.setImageResource(R.drawable.ic_music_notification);
+                                if (expandedArtView != null) expandedArtView.setImageResource(R.drawable.ic_music_notification);
                             }
                         }
-                    }
-                });
+                    });
+                }
+            });
+        }
+
+        if (isExpanded) {
+            updateTimelineProgress();
+        }
+    }
+
+    private void updateTimelineProgress() {
+        if (!isExpanded || isUserSeeking) return;
+
+        try {
+            PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+            long pos = controller.getCurrentPosition();
+            long dur = controller.getDuration();
+
+            if (tvCurrentTime != null) tvCurrentTime.setText(formatTime(pos));
+            if (tvTotalTime != null) tvTotalTime.setText(formatTime(dur));
+
+            if (seekBar != null && dur > 0) {
+                seekBar.setMax((int) dur);
+                seekBar.setProgress((int) pos);
             }
-        });
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating timeline progress", e);
+        }
+    }
+
+    private void checkFavoriteStatus() {
+        if (currentMediaId <= 0) return;
+
+        try {
+            PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+            controller.checkIsFavorite(currentMediaId, new kotlin.jvm.functions.Function1<Boolean, kotlin.Unit>() {
+                @Override
+                public kotlin.Unit invoke(Boolean isFav) {
+                    isCurrentSongFavorite = Boolean.TRUE.equals(isFav);
+                    updateFavoriteIcon();
+                    return kotlin.Unit.INSTANCE;
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking favorite status", e);
+        }
+    }
+
+    private void updateFavoriteIcon() {
+        if (btnFavorite != null) {
+            btnFavorite.setImageResource(
+                    isCurrentSongFavorite ? R.drawable.ic_notif_favorite_filled : R.drawable.ic_notif_favorite_border
+            );
+            if (isCurrentSongFavorite) {
+                btnFavorite.setColorFilter(Color.parseColor("#FF3B30"));
+            } else {
+                btnFavorite.setColorFilter(Color.WHITE);
+            }
+        }
+    }
+
+    private void launchPlayerScreen() {
+        try {
+            Intent launchIntent = new Intent(this, MainActivity.class);
+            launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            launchIntent.setData(Uri.parse("tidemusic://player"));
+            startActivity(launchIntent);
+        } catch (Exception e) {
+            Log.e(TAG, "Error launching player from dynamic island", e);
+        }
     }
 
     private void removeOverlay() {
-        if (equalizerView != null) {
-            equalizerView.stop();
+        mainHandler.removeCallbacks(progressUpdater);
+        if (miniEqualizerView != null) {
+            miniEqualizerView.stop();
         }
-        if (pillRootView != null && windowManager != null) {
+        if (rootContainer != null && windowManager != null) {
             try {
-                windowManager.removeView(pillRootView);
+                windowManager.removeView(rootContainer);
             } catch (Exception ignored) {}
-            pillRootView = null;
+            rootContainer = null;
         }
     }
 
@@ -330,76 +846,94 @@ public class FloatingPillService extends Service {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, dm);
     }
 
+    private static String formatTime(long ms) {
+        if (ms <= 0) return "00:00";
+        long totalSecs = ms / 1000;
+        long mins = totalSecs / 60;
+        long secs = totalSecs % 60;
+        return String.format(Locale.US, "%02d:%02d", mins, secs);
+    }
+
     /**
-     * Native Java view rendering 7 thin animated equalizer bars.
+     * Native Java view rendering 7 thin animated Spotify-style green equalizer bars.
      */
     public static class SevenBarEqualizerView extends View {
 
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
-        private final float[] barFractions = new float[]{0.4f, 0.7f, 0.3f, 0.9f, 0.5f, 0.8f, 0.35f};
+        private final float[] barFractions = new float[]{0.35f, 0.75f, 0.45f, 0.95f, 0.6f, 0.85f, 0.4f};
         private ValueAnimator animator;
 
         public SevenBarEqualizerView(Context context) {
             super(context);
-            paint.setColor(Color.WHITE);
+            // Spotify vibrant green color (#1ED760)
+            paint.setColor(Color.parseColor("#1ED760"));
             paint.setStyle(Paint.Style.FILL);
+            setupAnimator();
+        }
 
+        private void setupAnimator() {
             animator = ValueAnimator.ofFloat(0f, 1f);
-            animator.setDuration(1600L);
+            animator.setDuration(1200);
             animator.setRepeatCount(ValueAnimator.INFINITE);
-            animator.setInterpolator(new LinearInterpolator());
+            animator.setRepeatMode(ValueAnimator.REVERSE);
+            animator.setInterpolator(new DecelerateInterpolator());
             animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator animation) {
-                    float progress = animation.getAnimatedFraction();
-                    barFractions[0] = (float) ((Math.sin(progress * 2 * Math.PI * 2.3 + 0.3) + 1.0) / 2.0 * 0.7 + 0.2);
-                    barFractions[1] = (float) ((Math.sin(progress * 2 * Math.PI * 3.1 + 1.2) + 1.0) / 2.0 * 0.8 + 0.15);
-                    barFractions[2] = (float) ((Math.sin(progress * 2 * Math.PI * 1.8 + 2.5) + 1.0) / 2.0 * 0.85 + 0.15);
-                    barFractions[3] = (float) ((Math.sin(progress * 2 * Math.PI * 2.7 + 0.7) + 1.0) / 2.0 * 0.75 + 0.25);
-                    barFractions[4] = (float) ((Math.sin(progress * 2 * Math.PI * 3.4 + 1.9) + 1.0) / 2.0 * 0.8 + 0.2);
-                    barFractions[5] = (float) ((Math.sin(progress * 2 * Math.PI * 2.1 + 3.1) + 1.0) / 2.0 * 0.7 + 0.2);
-                    barFractions[6] = (float) ((Math.sin(progress * 2 * Math.PI * 2.9 + 0.4) + 1.0) / 2.0 * 0.75 + 0.15);
+                    float phase = (float) animation.getAnimatedValue();
+                    for (int i = 0; i < barFractions.length; i++) {
+                        float offset = (float) i / (float) barFractions.length;
+                        float val = (float) Math.sin((phase * 2 * Math.PI) + (offset * Math.PI));
+                        barFractions[i] = Math.max(0.2f, Math.min(1.0f, (val + 1f) / 2f));
+                    }
                     invalidate();
                 }
             });
         }
 
         public void start() {
-            if (animator != null && !animator.isStarted()) {
+            if (animator != null && !animator.isRunning()) {
                 animator.start();
             }
         }
 
         public void stop() {
-            if (animator != null) {
+            if (animator != null && animator.isRunning()) {
                 animator.cancel();
             }
+            // Reset to resting height
+            for (int i = 0; i < barFractions.length; i++) {
+                barFractions[i] = 0.25f;
+            }
+            invalidate();
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float w = getWidth();
-            float h = getHeight();
-            int barCount = 7;
-            float barWidth = dpToPx(1.6f);
-            float gap = Math.max(1f, (w - (barCount * barWidth)) / (barCount - 1));
-            float corner = dpToPx(0.8f);
+            int width = getWidth();
+            int height = getHeight();
+            if (width <= 0 || height <= 0) return;
 
-            for (int i = 0; i < barCount; i++) {
-                float left = i * (barWidth + gap);
-                float right = left + barWidth;
-                float barHeight = Math.max(dpToPx(2.5f), h * barFractions[i]);
-                float top = h - barHeight;
-                rect.set(left, top, right, h);
-                canvas.drawRoundRect(rect, corner, corner, paint);
+            int count = barFractions.length;
+            float totalSpacing = (count - 1) * dpToPx(1.3f);
+            float barWidth = (width - totalSpacing) / count;
+            float spacing = dpToPx(1.3f);
+            float cornerRadius = dpToPx(1.0f);
+
+            float currentX = 0f;
+            for (int i = 0; i < count; i++) {
+                float barHeight = Math.max(dpToPx(2f), height * barFractions[i]);
+                float top = height - barHeight;
+                rect.set(currentX, top, currentX + barWidth, height);
+                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, paint);
+                currentX += barWidth + spacing;
             }
         }
 
         private float dpToPx(float dp) {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, dm);
+            return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, getResources().getDisplayMetrics());
         }
 
         @Override
