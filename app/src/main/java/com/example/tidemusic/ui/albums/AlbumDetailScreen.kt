@@ -143,8 +143,12 @@ fun AlbumDetailScreen(
                 }
             }
         )
+        val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("album_$albumId", tracks.size)
         Box(Modifier.weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
                 item {
                     Column(
                         Modifier

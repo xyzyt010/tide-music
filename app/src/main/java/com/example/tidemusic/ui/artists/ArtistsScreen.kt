@@ -182,7 +182,9 @@ fun ArtistsScreen(
                 )
             }
         } else {
+            val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("artists_list", displayArtists.size)
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .weight(1f),

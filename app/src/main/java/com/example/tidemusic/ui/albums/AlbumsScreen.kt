@@ -83,7 +83,9 @@ fun AlbumsScreen(
                 )
             }
         } else {
+            val gridState = com.example.tidemusic.ui.common.rememberScrollGridMemoryState("albums_list", distinctAlbums.size)
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),

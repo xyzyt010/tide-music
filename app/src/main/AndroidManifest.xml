@@ -59,6 +59,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- System-wide top floating dynamic island capsule service -->
+        <service
+            android:name="com.example.tidemusic.playback.FloatingPillService"
+            android:exported="false" />
+
         <!-- FileProvider for Share Song (Intent.ACTION_SEND) and ringtone export. -->
         <provider
             android:name="androidx.core.content.FileProvider"

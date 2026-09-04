@@ -262,17 +262,8 @@ class LibraryRepository constructor(
                     orderIndex = idx,
                 )
             }
-            val formatPlaylists = BuiltInPlaylists.formatPlaylists.mapIndexed { idx, name ->
-                Playlist(
-                    id = BuiltInPlaylistIds.idForName(name),
-                    name = name,
-                    isBuiltIn = true,
-                    createdAt = 0L,
-                    orderIndex = 100 + idx,
-                )
-            }
             val userRows = rows.filter { it.name != BuiltInPlaylists.DOWNLOAD && it.name != "yt-dlp" }
-            builtIns + formatPlaylists + userRows.map { it.toDomain() }
+            builtIns + userRows.map { it.toDomain() }
         }
 
     fun observeSongsForPlaylist(playlist: Playlist): Flow<List<Song>> = when (playlist.id) {
@@ -283,11 +274,7 @@ class LibraryRepository constructor(
         BuiltInPlaylistIds.MOST_PLAYED -> observeMostPlayed()
         BuiltInPlaylistIds.NOT_PLAYED -> observeNotPlayed()
         BuiltInPlaylistIds.DOWNLOAD -> observeYtDlpSongs()
-        BuiltInPlaylistIds.FORMAT_MP3 -> observeFormatSongs("mp3")
-        BuiltInPlaylistIds.FORMAT_FLAC -> observeFormatSongs("flac")
-        BuiltInPlaylistIds.FORMAT_M4A -> observeFormatSongs("m4a")
-        BuiltInPlaylistIds.FORMAT_WAV -> observeFormatSongs("wav")
-        BuiltInPlaylistIds.FORMAT_OGG -> observeFormatSongs("ogg")
+        BuiltInPlaylistIds.FILE_FORMATS -> observeAllSongs()
         else -> playlistDao.observeSongsInPlaylist(playlist.id)
             .map { rows -> rows.map { it.toDomain() } }
     }

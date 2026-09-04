@@ -129,7 +129,11 @@ fun FoldersScreen(
             }
         )
 
-        LazyColumn(Modifier.fillMaxSize().weight(1f).padding(top = 8.dp)) {
+        val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("folders_list", roots.size)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().weight(1f).padding(top = 8.dp)
+        ) {
             items(roots, key = { it.id }) { folder ->
                 FolderRow(
                     folder = folder,

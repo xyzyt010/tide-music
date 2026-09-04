@@ -134,8 +134,12 @@ fun FolderDetailScreen(
                 }
             }
         )
+        val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("folder_$folderId", children.size + songs.size)
         Box(Modifier.weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
                 // Header — sticky-style top section.
                 item {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {

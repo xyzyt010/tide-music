@@ -96,11 +96,7 @@ private fun builtInIcon(name: String): ImageVector = when (name) {
     "Recently Played" -> Icons.Rounded.PlayCircle
     "Most Played" -> Icons.Rounded.Star
     "Not Played" -> Icons.Rounded.Notifications
-    BuiltInPlaylists.FORMAT_MP3 -> Icons.Rounded.MusicNote
-    BuiltInPlaylists.FORMAT_FLAC -> Icons.Rounded.Star
-    BuiltInPlaylists.FORMAT_M4A -> Icons.Rounded.QueueMusic
-    BuiltInPlaylists.FORMAT_WAV -> Icons.Rounded.PlayCircle
-    BuiltInPlaylists.FORMAT_OGG -> Icons.Rounded.FiberNew
+    BuiltInPlaylists.FILE_FORMATS -> Icons.Rounded.QueueMusic
     BuiltInPlaylists.YT_DLP -> Icons.Rounded.Download
     else -> Icons.Rounded.List
 }
@@ -112,11 +108,7 @@ private fun builtInDescription(name: String): String = when (name) {
     "Recently Played" -> "Playback history"
     "Most Played" -> "By play count"
     "Not Played" -> "Never played"
-    BuiltInPlaylists.FORMAT_MP3 -> "MPEG Layer-3 audio files (.mp3)"
-    BuiltInPlaylists.FORMAT_FLAC -> "Lossless audio files (.flac)"
-    BuiltInPlaylists.FORMAT_M4A -> "AAC / MPEG-4 audio files (.m4a)"
-    BuiltInPlaylists.FORMAT_WAV -> "Uncompressed Waveform audio (.wav)"
-    BuiltInPlaylists.FORMAT_OGG -> "Ogg Vorbis / Opus audio (.ogg, .opus)"
+    BuiltInPlaylists.FILE_FORMATS -> "Tracks divided by format sections: MP3, FLAC, M4A, WAV, OGG"
     "Download", BuiltInPlaylists.YT_DLP -> "Downloaded tracks"
     else -> ""
 }
@@ -132,11 +124,15 @@ fun PlaylistsScreen(
     var playlistPendingDelete by remember { mutableStateOf<Playlist?>(null) }
     var playlistPendingRename by remember { mutableStateOf<Playlist?>(null) }
     var renameText by remember { mutableStateOf("") }
+    val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("playlists_list", playlists.size)
 
     Column(Modifier.fillMaxSize().background(TideColors.background)) {
         com.example.tidemusic.ui.common.ThinTopBar(title = "Playlists")
         Box(Modifier.weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(vertical = 8.dp),
+            ) {
                 item {
                     Text(
                         text = "Built-in Playlists",
@@ -146,8 +142,8 @@ fun PlaylistsScreen(
                     )
                 }
 
-                val generalBuiltIns = playlists.filter { it.isBuiltIn && !BuiltInPlaylists.formatPlaylists.contains(it.name) }
-                items(generalBuiltIns, key = { it.id }) { playlist ->
+                val builtIns = playlists.filter { it.isBuiltIn }
+                items(builtIns, key = { it.id }) { playlist ->
                     PlaylistRow(
                         playlist = playlist,
                         icon = builtInIcon(playlist.name),
@@ -155,27 +151,6 @@ fun PlaylistsScreen(
                         onClick = { onPlaylistClick(playlist) },
                         isBuiltIn = true,
                     )
-                }
-
-                val formatPlaylists = playlists.filter { BuiltInPlaylists.formatPlaylists.contains(it.name) }
-                if (formatPlaylists.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "File Format Playlists",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = TideColors.textSecondary,
-                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp),
-                        )
-                    }
-                    items(formatPlaylists, key = { it.id }) { playlist ->
-                        PlaylistRow(
-                            playlist = playlist,
-                            icon = builtInIcon(playlist.name),
-                            description = builtInDescription(playlist.name),
-                            onClick = { onPlaylistClick(playlist) },
-                            isBuiltIn = true,
-                        )
-                    }
                 }
 
                 val userPlaylists = playlists.filter { !it.isBuiltIn }

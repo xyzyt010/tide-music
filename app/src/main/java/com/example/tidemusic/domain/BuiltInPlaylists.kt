@@ -15,20 +15,7 @@ data object BuiltInPlaylists {
     const val NOT_PLAYED = "Not Played"
     const val DOWNLOAD = "Download"
     const val YT_DLP = "Download"
-
-    const val FORMAT_MP3 = "MP3 Audio"
-    const val FORMAT_FLAC = "FLAC Lossless"
-    const val FORMAT_M4A = "M4A / AAC"
-    const val FORMAT_WAV = "WAV Audio"
-    const val FORMAT_OGG = "OGG / OPUS"
-
-    val formatPlaylists: List<String> = listOf(
-        FORMAT_MP3,
-        FORMAT_FLAC,
-        FORMAT_M4A,
-        FORMAT_WAV,
-        FORMAT_OGG,
-    )
+    const val FILE_FORMATS = "File Formats"
 
     /** Names in pinned/display order. */
     val ordered: List<String> = listOf(
@@ -38,11 +25,12 @@ data object BuiltInPlaylists {
         RECENTLY_PLAYED,
         MOST_PLAYED,
         NOT_PLAYED,
+        FILE_FORMATS,
         DOWNLOAD,
     )
 
     fun isBuiltInName(name: String): Boolean =
-        ordered.contains(name) || formatPlaylists.contains(name) || name.equals("yt-dlp", ignoreCase = true)
+        ordered.contains(name) || name.equals("yt-dlp", ignoreCase = true)
 }
 
 /** IDs given to built-in playlists are negative so they never clash with autogen user rows. */
@@ -54,14 +42,9 @@ object BuiltInPlaylistIds {
     const val MOST_PLAYED: Long = -5L
     const val NOT_PLAYED: Long = -6L
     const val DOWNLOAD: Long = -7L
+    const val FILE_FORMATS: Long = -10L
 
-    const val FORMAT_MP3: Long = -10L
-    const val FORMAT_FLAC: Long = -11L
-    const val FORMAT_M4A: Long = -12L
-    const val FORMAT_WAV: Long = -13L
-    const val FORMAT_OGG: Long = -14L
-
-    fun isFormatPlaylist(id: Long): Boolean = id in -14L..-10L
+    fun isFormatPlaylist(id: Long): Boolean = id == FILE_FORMATS
 
     fun idForName(name: String): Long = when (name) {
         BuiltInPlaylists.ALL_SONGS -> ALL_SONGS
@@ -71,11 +54,7 @@ object BuiltInPlaylistIds {
         BuiltInPlaylists.MOST_PLAYED -> MOST_PLAYED
         BuiltInPlaylists.NOT_PLAYED -> NOT_PLAYED
         BuiltInPlaylists.DOWNLOAD, "yt-dlp", "Download" -> DOWNLOAD
-        BuiltInPlaylists.FORMAT_MP3 -> FORMAT_MP3
-        BuiltInPlaylists.FORMAT_FLAC -> FORMAT_FLAC
-        BuiltInPlaylists.FORMAT_M4A -> FORMAT_M4A
-        BuiltInPlaylists.FORMAT_WAV -> FORMAT_WAV
-        BuiltInPlaylists.FORMAT_OGG -> FORMAT_OGG
+        BuiltInPlaylists.FILE_FORMATS -> FILE_FORMATS
         else -> error("Not a built-in playlist: $name")
     }
 }

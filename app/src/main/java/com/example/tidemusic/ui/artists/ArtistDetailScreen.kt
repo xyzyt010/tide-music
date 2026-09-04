@@ -142,8 +142,12 @@ fun ArtistDetailScreen(
                 }
             }
         )
+        val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("artist_$artistId", tracks.size)
         Box(Modifier.weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
                 item {
                     Column(
                         Modifier

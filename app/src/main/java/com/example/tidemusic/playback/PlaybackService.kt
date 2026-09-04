@@ -59,14 +59,19 @@ class PlaybackService : MediaSessionService() {
                 playbackController.attachPlayer(exo)
                 exo.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        FloatingPillManager.updatePlayback(this@PlaybackService, isPlaying, exo.currentMediaItem)
+                        val item = exo.currentMediaItem
+                        val filePath = item?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH)
+                        val uriStr = item?.localConfiguration?.uri?.toString()
+                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, isPlaying)
                     }
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        FloatingPillManager.updatePlayback(this@PlaybackService, exo.isPlaying, mediaItem)
+                        val filePath = mediaItem?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH)
+                        val uriStr = mediaItem?.localConfiguration?.uri?.toString()
+                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, exo.isPlaying)
                     }
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
-                            FloatingPillManager.updatePlayback(this@PlaybackService, false, null)
+                            FloatingPillService.hide(this@PlaybackService)
                         }
                     }
                 })
@@ -122,7 +127,7 @@ class PlaybackService : MediaSessionService() {
                 ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {
                     if (customCommand.customAction == "ACTION_CLOSE") {
                         saveState()
-                        FloatingPillManager.updatePlayback(this@PlaybackService, false, null)
+                        FloatingPillService.hide(this@PlaybackService)
                         player?.stop()
                         player?.clearMediaItems()
                         @Suppress("DEPRECATION")
@@ -249,7 +254,7 @@ class PlaybackService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "ACTION_CLOSE") {
             saveState()
-            FloatingPillManager.updatePlayback(this, false, null)
+            FloatingPillService.hide(this)
             player?.stop()
             player?.clearMediaItems()
             @Suppress("DEPRECATION")
@@ -272,7 +277,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         saveState()
-        FloatingPillManager.updatePlayback(this, false, null)
+        FloatingPillService.hide(this)
         mediaSession?.run {
             player.release()
             release()

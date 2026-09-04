@@ -124,12 +124,30 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        com.example.tidemusic.playback.FloatingPillManager.setAppInForeground(this, true)
+        // Prompt for overlay permission if not yet granted (needed for floating pill)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
+            val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+            val hasAsked = prefs.getBoolean("overlay_permission_asked", false)
+            if (!hasAsked) {
+                prefs.edit().putBoolean("overlay_permission_asked", true).apply()
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Enable Floating Music Capsule")
+                    .setMessage("Tide Music can show a small floating capsule at the top of your screen while music plays. This requires the 'Display over other apps' permission.")
+                    .setPositiveButton("Enable") { _, _ ->
+                        val intent = android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                        startActivity(intent)
+                    }
+                    .setNegativeButton("Not now", null)
+                    .show()
+            }
+        }
     }
 
     override fun onStop() {
         super.onStop()
-        com.example.tidemusic.playback.FloatingPillManager.setAppInForeground(this, false)
     }
 
     override fun onResume() {

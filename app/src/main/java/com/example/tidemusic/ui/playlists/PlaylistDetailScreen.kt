@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
@@ -162,6 +163,7 @@ fun PlaylistDetailScreen(
     val playlists by ServiceLocator.repository.observePlaylists().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var showSortDropdown by remember { mutableStateOf(false) }
+    val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("playlist_$playlistId", songs.size)
 
     val isSortLocked = isBuiltIn && (
         title.equals("Recently Added", ignoreCase = true) ||
@@ -169,6 +171,27 @@ fun PlaylistDetailScreen(
         title.equals("Most Played", ignoreCase = true) ||
         title.equals("Not Played", ignoreCase = true)
     )
+
+    val isFileFormatsPlaylist = playlistId == com.example.tidemusic.domain.BuiltInPlaylistIds.FILE_FORMATS
+    val formatOrder = remember { listOf("MP3", "FLAC", "M4A", "WAV", "OGG") }
+    val grouped = remember(songs, isFileFormatsPlaylist) {
+        if (!isFileFormatsPlaylist) emptyMap()
+        else songs.groupBy { song ->
+            val path = song.filePath.lowercase()
+            val mime = song.mimeType.lowercase()
+            when {
+                path.endsWith(".mp3") || mime.contains("mpeg") || mime.contains("mp3") -> "MP3"
+                path.endsWith(".flac") || mime.contains("flac") -> "FLAC"
+                path.endsWith(".m4a") || path.endsWith(".aac") || path.endsWith(".mp4") || mime.contains("mp4") || mime.contains("aac") -> "M4A"
+                path.endsWith(".wav") || mime.contains("wav") || mime.contains("wave") -> "WAV"
+                path.endsWith(".ogg") || path.endsWith(".opus") || mime.contains("ogg") || mime.contains("opus") -> "OGG"
+                else -> path.substringAfterLast('.', "OTHER").uppercase()
+            }
+        }
+    }
+    val sortedFormatKeys = remember(grouped, formatOrder) {
+        formatOrder.filter { grouped.containsKey(it) } + (grouped.keys - formatOrder.toSet()).sorted()
+    }
 
     Column(Modifier.fillMaxSize()) {
         ThinTopBar(
@@ -191,7 +214,10 @@ fun PlaylistDetailScreen(
             } else null
         )
         Box(Modifier.weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 item {
                     Column(
                         Modifier
@@ -273,47 +299,111 @@ fun PlaylistDetailScreen(
                         )
                     }
                 }
-                itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-                    val isMostPlayed = isBuiltIn && title.equals("Most Played", ignoreCase = true)
-                    val playsText = if (song.playCount == 1) "1 play" else "${song.playCount} plays"
-                    val customSubtitle = if (isMostPlayed) {
-                        val artistStr = song.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
-                        "$artistStr • $playsText • ${formatDuration(song.durationMs)}"
-                    } else null
 
-                    SongRow(
-                        song = song,
-                        onClick = { viewModel.playAt(index) },
-                        multiSelect = multiSelect,
-                        subtitleOverride = customSubtitle,
-                        trailing = if (!isBuiltIn) {
-                            {
-                                var menuOpen by remember { mutableStateOf(false) }
-                                Box {
-                                    IconButton(onClick = { menuOpen = true }) {
-                                        Icon(
-                                            Icons.Rounded.MoreVert,
-                                            contentDescription = "Options",
-                                            tint = TideColors.textSecondary,
+                if (isFileFormatsPlaylist) {
+                    sortedFormatKeys.forEach { formatKey ->
+                        val formatSongs = grouped[formatKey].orEmpty()
+                        if (formatSongs.isNotEmpty()) {
+                            val formatTitle = when (formatKey) {
+                                "MP3" -> "MP3 Audio (.mp3)"
+                                "FLAC" -> "FLAC Lossless (.flac)"
+                                "M4A" -> "M4A / AAC (.m4a)"
+                                "WAV" -> "WAV Audio (.wav)"
+                                "OGG" -> "OGG / OPUS (.ogg, .opus)"
+                                else -> "$formatKey Audio"
+                            }
+                            val sectionDurationMs = formatSongs.sumOf { it.durationMs }
+
+                            item(key = "format_header_$formatKey") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                color = TideColors.accent.copy(alpha = 0.16f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                    ) {
+                                        Text(
+                                            text = formatKey,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TideColors.accent,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                         )
                                     }
-                                    com.example.tidemusic.ui.common.SongOverflowMenu(
-                                        song = song,
-                                        expanded = menuOpen,
-                                        onDismiss = { menuOpen = false },
-                                        showRemoveFromQueue = true,
-                                        onRemoveFromQueue = {
-                                            scope.launch {
-                                                try {
-                                                    ServiceLocator.repository.removeSongFromPlaylist(playlistId, song.id)
-                                                } catch (_: Exception) {}
-                                            }
-                                        },
+                                    Text(
+                                        text = formatTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = TideColors.textPrimary,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        text = "${formatSongs.size} • ${formatPlaylistDuration(sectionDurationMs)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TideColors.textSecondary,
                                     )
                                 }
                             }
-                        } else null,
-                    )
+
+                            items(formatSongs, key = { it.id }) { song ->
+                                SongRow(
+                                    song = song,
+                                    onClick = { viewModel.playAt(songs.indexOf(song)) },
+                                    multiSelect = multiSelect,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
+                        val isMostPlayed = isBuiltIn && title.equals("Most Played", ignoreCase = true)
+                        val playsText = if (song.playCount == 1) "1 play" else "${song.playCount} plays"
+                        val customSubtitle = if (isMostPlayed) {
+                            val artistStr = song.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
+                            "$artistStr • $playsText • ${formatDuration(song.durationMs)}"
+                        } else null
+
+                        SongRow(
+                            song = song,
+                            onClick = { viewModel.playAt(index) },
+                            multiSelect = multiSelect,
+                            subtitleOverride = customSubtitle,
+                            trailing = if (!isBuiltIn) {
+                                {
+                                    var menuOpen by remember { mutableStateOf(false) }
+                                    Box {
+                                        IconButton(onClick = { menuOpen = true }) {
+                                            Icon(
+                                                Icons.Rounded.MoreVert,
+                                                contentDescription = "Options",
+                                                tint = TideColors.textSecondary,
+                                            )
+                                        }
+                                        com.example.tidemusic.ui.common.SongOverflowMenu(
+                                            song = song,
+                                            expanded = menuOpen,
+                                            onDismiss = { menuOpen = false },
+                                            showRemoveFromQueue = true,
+                                            onRemoveFromQueue = {
+                                                scope.launch {
+                                                    try {
+                                                        ServiceLocator.repository.removeSongFromPlaylist(playlistId, song.id)
+                                                    } catch (_: Exception) {}
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            } else null,
+                        )
+                    }
                 }
             }
             MultiSelectActionBar(
