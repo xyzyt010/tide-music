@@ -11,6 +11,9 @@ import com.example.tidemusic.util.orUnknown
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -52,6 +55,12 @@ class PlaybackController constructor(
 
     val currentMediaId: Long?
         get() = player?.currentMediaItem?.mediaId?.toLongOrNull()
+
+    private val _currentPlayingSongId = MutableStateFlow<Long?>(null)
+    val currentPlayingSongId: StateFlow<Long?> = _currentPlayingSongId.asStateFlow()
+
+    private val _isPlayingState = MutableStateFlow(false)
+    val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
 
     fun toggleFavoriteCurrentSong(onResult: ((Boolean) -> Unit)? = null) {
         val id = currentMediaId ?: return
@@ -110,6 +119,8 @@ class PlaybackController constructor(
         player = p
         try {
             p.addListener(listener)
+            _currentPlayingSongId.value = p.currentMediaItem?.mediaId?.toLongOrNull()
+            _isPlayingState.value = p.isPlaying
         } catch (_: Exception) {}
     }
 
@@ -358,19 +369,42 @@ class PlaybackController constructor(
         }
     }
 
-    /** 3-state repeat: Off → Repeat Queue → Repeat One-Song → Off (Spec Section 7). */
-    fun cycleRepeat(): Int {
-        val p = player ?: return Player.REPEAT_MODE_OFF
+    /** Repeat mode property and explicit setter. Supports toggling between Repeat Queue and Repeat One-Song. */
+    var repeatMode: Int
+        get() = player?.repeatMode ?: Player.REPEAT_MODE_ALL
+        set(value) {
+            val p = player ?: return
+            try {
+                p.repeatMode = value
+            } catch (e: Exception) {
+                Log.e("PlaybackController", "Error setting repeat mode", e)
+            }
+        }
+
+    fun setRepeatMode(mode: Int): Int {
+        val p = player ?: return mode
         try {
-            p.repeatMode = when (p.repeatMode) {
-                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                else -> Player.REPEAT_MODE_OFF
+            p.repeatMode = mode
+            return p.repeatMode
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error setting repeat mode", e)
+            return mode
+        }
+    }
+
+    /** 2-state toggle: Repeat Queue (REPEAT_MODE_ALL) <-> Repeat One-Song (REPEAT_MODE_ONE). */
+    fun cycleRepeat(): Int {
+        val p = player ?: return Player.REPEAT_MODE_ALL
+        try {
+            p.repeatMode = if (p.repeatMode == Player.REPEAT_MODE_ONE) {
+                Player.REPEAT_MODE_ALL
+            } else {
+                Player.REPEAT_MODE_ONE
             }
             return p.repeatMode
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error cycling repeat", e)
-            return Player.REPEAT_MODE_OFF
+            return Player.REPEAT_MODE_ALL
         }
     }
 
@@ -415,6 +449,8 @@ class PlaybackController constructor(
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val id = mediaItem?.mediaId?.toLongOrNull()
+            _currentPlayingSongId.value = id
+            _isPlayingState.value = player?.isPlaying == true
             val p = player
             // Prevent back-to-back immediate repeat in shuffle mode if there are multiple songs
             if (id != null && p != null && p.shuffleModeEnabled && p.mediaItemCount > 1 && id == lastPlayedMediaId) {
@@ -441,10 +477,14 @@ class PlaybackController constructor(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _isPlayingState.value = isPlaying
+            _currentPlayingSongId.value = player?.currentMediaItem?.mediaId?.toLongOrNull()
             savePlaybackState()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            _isPlayingState.value = player?.isPlaying == true
+            _currentPlayingSongId.value = player?.currentMediaItem?.mediaId?.toLongOrNull()
             if (playbackState == Player.STATE_ENDED) {
                 val currentId = player?.currentMediaItem?.mediaId?.toLongOrNull()
                 if (currentId != null) {

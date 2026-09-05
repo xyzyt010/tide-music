@@ -27,6 +27,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.example.tidemusic.di.ServiceLocator
 import com.example.tidemusic.playback.ConnectionHolder
+import com.example.tidemusic.playback.FloatingPillService
 import com.example.tidemusic.theme.TideMusicTheme
 import com.example.tidemusic.ui.AppShell
 import com.example.tidemusic.ui.LocalMediaController
@@ -124,6 +125,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        FloatingPillService.setAppInForeground(true)
         // Prompt for overlay permission if not yet granted (needed for floating pill)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
             val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
@@ -148,10 +150,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        FloatingPillService.setAppInForeground(false)
     }
 
     override fun onResume() {
         super.onResume()
+        FloatingPillService.setAppInForeground(true)
         if (hasAllPermissions()) {
             triggerLibraryScan()
         }

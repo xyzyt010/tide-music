@@ -258,13 +258,14 @@ fun PlayerScreen(
     var speedValue by remember { mutableStateOf(1.0f) }
     var pitchValue by remember { mutableStateOf(1.0f) }
     var shuffleToast by remember { mutableStateOf<String?>(null) }
+    var repeatToast by remember { mutableStateOf<String?>(null) }
 
     var currentItem by remember { mutableStateOf<MediaItem?>(controller?.currentMediaItem) }
     var isPlaying by remember { mutableStateOf(controller?.isPlaying ?: false) }
     var position by remember { mutableStateOf(controller?.currentPosition ?: 0L) }
     var duration by remember { mutableStateOf(controller?.duration ?: 0L) }
     var shuffle by remember { mutableStateOf(controller?.shuffleModeEnabled ?: false) }
-    var repeatMode by remember { mutableStateOf(controller?.repeatMode ?: Player.REPEAT_MODE_OFF) }
+    var repeatMode by remember { mutableStateOf(controller?.repeatMode ?: ServiceLocator.playbackController.repeatMode) }
 
     LaunchedEffect(controller) {
         controller?.run {
@@ -338,6 +339,12 @@ fun PlayerScreen(
         val msg = shuffleToast ?: return@LaunchedEffect
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         shuffleToast = null
+    }
+
+    LaunchedEffect(repeatToast) {
+        val msg = repeatToast ?: return@LaunchedEffect
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        repeatToast = null
     }
 
     val mediaSong = currentItem?.let { mediaItemToSongDomain(it) }
@@ -585,19 +592,18 @@ fun PlayerScreen(
                     }
                     IconButton(
                         onClick = {
-                            repeatMode = when (repeatMode) {
-                                Player.REPEAT_MODE_OFF -> {
-                                    controller?.repeatMode = Player.REPEAT_MODE_ALL
-                                    Player.REPEAT_MODE_ALL
-                                }
-                                Player.REPEAT_MODE_ALL -> {
-                                    controller?.repeatMode = Player.REPEAT_MODE_ONE
-                                    Player.REPEAT_MODE_ONE
-                                }
-                                else -> {
-                                    controller?.repeatMode = Player.REPEAT_MODE_OFF
-                                    Player.REPEAT_MODE_OFF
-                                }
+                            val nextMode = if (repeatMode == Player.REPEAT_MODE_ONE) {
+                                Player.REPEAT_MODE_ALL
+                            } else {
+                                Player.REPEAT_MODE_ONE
+                            }
+                            repeatMode = nextMode
+                            controller?.repeatMode = nextMode
+                            ServiceLocator.playbackController.setRepeatMode(nextMode)
+                            repeatToast = if (nextMode == Player.REPEAT_MODE_ONE) {
+                                "Repeating current song"
+                            } else {
+                                "Repeating queue"
                             }
                         },
                     ) {
@@ -607,11 +613,11 @@ fun PlayerScreen(
                             } else {
                                 Icons.Rounded.Repeat
                             },
-                            contentDescription = "Repeat",
-                            tint = if (repeatMode != Player.REPEAT_MODE_OFF) {
+                            contentDescription = if (repeatMode == Player.REPEAT_MODE_ONE) "Repeat current song" else "Repeat queue",
+                            tint = if (repeatMode == Player.REPEAT_MODE_ONE) {
                                 TideColors.accent
                             } else {
-                                TideColors.textPrimary.copy(alpha = 0.8f)
+                                TideColors.textPrimary.copy(alpha = 0.9f)
                             },
                         )
                     }

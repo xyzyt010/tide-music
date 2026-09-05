@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -69,7 +70,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +86,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import coil3.compose.AsyncImage
+import com.example.tidemusic.di.ServiceLocator
 import com.example.tidemusic.domain.Song
 import com.example.tidemusic.theme.TideColors
 import com.example.tidemusic.ui.LocalMediaController
@@ -259,6 +263,8 @@ fun TideScrubSlider(
 
 /**
  * Animated sound playing equalizer bar graph (matches Spotify / reference screenshot).
+ * High-performance, hardware-accelerated 7-bar visualizer that dances continuously while isPlaying is true,
+ * and rests at neat varied levels when paused. Never skips frames or freezes.
  */
 @Composable
 fun PlayingEqualizerBars(
@@ -269,107 +275,52 @@ fun PlayingEqualizerBars(
     barWidth: Dp = 1.6.dp,
     barSpacing: Dp = 1.4.dp,
 ) {
-    if (!isPlaying) {
-        Row(
-            modifier = modifier.height(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(barSpacing),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            val heights = listOf(0.35f, 0.70f, 0.45f, 0.90f, 0.55f, 0.80f, 0.40f)
-            for (i in 0 until barCount) {
-                val hFrac = heights.getOrElse(i % heights.size) { 0.5f }
-                Box(
-                    modifier = Modifier
-                        .width(barWidth)
-                        .fillMaxHeight(hFrac)
-                        .clip(RoundedCornerShape(0.8.dp))
-                        .background(color)
-                )
-            }
-        }
-    } else {
-        val infiniteTransition = rememberInfiniteTransition(label = "equalizerTransition")
-        val anim1 by infiniteTransition.animateFloat(
-            initialValue = 0.20f,
-            targetValue = 0.85f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(310, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar1"
-        )
-        val anim2 by infiniteTransition.animateFloat(
-            initialValue = 0.75f,
-            targetValue = 0.25f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(440, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar2"
-        )
-        val anim3 by infiniteTransition.animateFloat(
-            initialValue = 0.30f,
-            targetValue = 1.0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(280, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar3"
-        )
-        val anim4 by infiniteTransition.animateFloat(
-            initialValue = 0.85f,
-            targetValue = 0.20f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(520, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar4"
-        )
-        val anim5 by infiniteTransition.animateFloat(
-            initialValue = 0.40f,
-            targetValue = 0.90f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(360, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar5"
-        )
-        val anim6 by infiniteTransition.animateFloat(
-            initialValue = 0.90f,
-            targetValue = 0.30f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(480, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar6"
-        )
-        val anim7 by infiniteTransition.animateFloat(
-            initialValue = 0.25f,
-            targetValue = 0.75f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(330, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "bar7"
-        )
+    val totalWidth = (barWidth * barCount) + (barSpacing * (barCount - 1))
 
-        val anims = listOf(anim1, anim2, anim3, anim4, anim5, anim6, anim7)
+    val infiniteTransition = rememberInfiniteTransition(label = "equalizerTransition")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(850, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "eqPhase"
+    )
 
-        Row(
-            modifier = modifier.height(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(barSpacing),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            for (i in 0 until barCount) {
-                val frac = anims.getOrElse(i % anims.size) { anim1 }
-                Box(
-                    modifier = Modifier
-                        .width(barWidth)
-                        .fillMaxHeight(frac)
-                        .clip(RoundedCornerShape(0.8.dp))
-                        .background(color)
-                )
+    val restingHeights = remember {
+        floatArrayOf(0.35f, 0.70f, 0.45f, 0.90f, 0.55f, 0.80f, 0.40f)
+    }
+
+    Canvas(
+        modifier = modifier.size(width = totalWidth, height = 14.dp)
+    ) {
+        val totalH = size.height
+        val barWidthPx = barWidth.toPx()
+        val barSpacingPx = barSpacing.toPx()
+        val cornerRadius = CornerRadius(barWidthPx / 2f, barWidthPx / 2f)
+
+        var currentX = 0f
+        for (i in 0 until barCount) {
+            val hFrac = if (isPlaying) {
+                val barFreq = 1f + ((i * 3) % 5) * 0.25f
+                val offset = (i.toFloat() / barCount.toFloat()) * (2f * Math.PI.toFloat())
+                val sinVal = kotlin.math.sin((phase * 2f * Math.PI.toFloat() * barFreq) + offset)
+                0.20f + 0.75f * ((sinVal + 1f) / 2f)
+            } else {
+                restingHeights[i % restingHeights.size]
             }
+
+            val barHeightPx = (totalH * hFrac).coerceIn(barWidthPx, totalH)
+            val topPx = totalH - barHeightPx
+
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(currentX, topPx),
+                size = Size(barWidthPx, barHeightPx),
+                cornerRadius = cornerRadius
+            )
+            currentX += barWidthPx + barSpacingPx
         }
     }
 }
@@ -442,7 +393,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(94.dp)
+            .height(76.dp)
             .padding(0.dp)
             .clipToBounds()
             .background(surfaceColor)
@@ -506,18 +457,18 @@ fun MiniPlayerBar(onClick: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 6.dp),
+                .padding(bottom = 2.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, end = 8.dp, top = 8.dp),
+                    .padding(start = 10.dp, end = 6.dp, top = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (song != null) {
-                    // Larger song cover image
-                    ArtworkTile(song = song, size = 48.dp, rounded = 10.dp)
+                    // Song cover image
+                    ArtworkTile(song = song, size = 42.dp, rounded = 9.dp)
 
                     // Title & artist text
                     Column(
@@ -529,13 +480,13 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             text = song.title.orUnknown(),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 13.5.sp,
                             ),
                             color = TideColors.textPrimary,
                             maxLines = 1,
                             modifier = Modifier.basicMarquee(),
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(1.dp))
                         Text(
                             text = song.artist.orUnknown(),
                             style = MaterialTheme.typography.bodySmall.copy(
@@ -555,35 +506,35 @@ fun MiniPlayerBar(onClick: () -> Unit) {
 
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
-                        modifier = Modifier.size(38.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.SkipPrevious,
                             contentDescription = "Previous",
                             tint = TideColors.textPrimary,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.togglePlayPause() },
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(38.dp),
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = TideColors.accent,
-                            modifier = Modifier.size(32.dp),
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(26.dp),
                         )
                     }
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.next() },
-                        modifier = Modifier.size(38.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.SkipNext,
                             contentDescription = "Next",
                             tint = TideColors.textPrimary,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                     IconButton(
@@ -592,37 +543,37 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             shuffleEnabled = next
                             com.example.tidemusic.di.ServiceLocator.playbackController.setShuffleMode(next)
                         },
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Shuffle,
                             contentDescription = "Shuffle",
                             tint = if (shuffleEnabled) TideColors.accent else TideColors.textSecondary,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(9.dp))
                             .background(TideColors.outline),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.QueueMusic, null, tint = TideColors.textSecondary, modifier = Modifier.size(26.dp))
+                        Icon(Icons.Rounded.QueueMusic, null, tint = TideColors.textSecondary, modifier = Modifier.size(24.dp))
                     }
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 12.dp),
+                            .padding(horizontal = 10.dp),
                     ) {
-                        Text("Not Playing", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp), color = TideColors.textPrimary)
+                        Text("Not Playing", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = 13.5.sp), color = TideColors.textPrimary)
                         Text("Tap to open player", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = TideColors.textSecondary)
                     }
                 }
             }
 
-            // Professional Canvas timeline seek bar with smooth scrubbing
+            // Simple & normal Canvas timeline seek bar with smooth scrubbing matching player section
             if (song != null && duration > 0f) {
                 TideScrubSlider(
                     value = position,
@@ -633,16 +584,18 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    activeColor = TideColors.accent,
-                    touchHeight = 24.dp,
-                    restTrackHeight = 3.dp,
-                    dragTrackHeight = 4.5.dp,
-                    restThumbRadius = 4.5.dp,
-                    dragThumbRadius = 7.5.dp,
+                        .padding(horizontal = 14.dp),
+                    activeColor = TideColors.textPrimary,
+                    inactiveColor = TideColors.textPrimary.copy(alpha = 0.25f),
+                    thumbColor = TideColors.textPrimary,
+                    touchHeight = 16.dp,
+                    restTrackHeight = 2.dp,
+                    dragTrackHeight = 3.5.dp,
+                    restThumbRadius = 3.5.dp,
+                    dragThumbRadius = 5.5.dp,
                 )
             } else {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(3.dp))
             }
         }
     }
@@ -864,9 +817,11 @@ fun SongRow(
             )
         }
         val controller = LocalMediaController.current
-        val currentMediaId = controller?.currentMediaItem?.mediaId?.toLongOrNull()
-        val isCurrentlyPlaying = (currentMediaId == song.id)
-        val isPlaybackActive = (controller?.isPlaying == true)
+        val activePlayingId by ServiceLocator.playbackController.currentPlayingSongId.collectAsState()
+        val isPlaybackActive by ServiceLocator.playbackController.isPlayingState.collectAsState()
+        val effectivePlayingId = activePlayingId ?: controller?.currentMediaItem?.mediaId?.toLongOrNull()
+        val isCurrentlyPlaying = (effectivePlayingId != null && effectivePlayingId == song.id)
+        val isPlaybackActiveNow = isPlaybackActive || (controller?.isPlaying == true && isCurrentlyPlaying)
 
         ArtworkTile(song = song, size = 56.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -876,7 +831,7 @@ fun SongRow(
             ) {
                 if (isCurrentlyPlaying) {
                     PlayingEqualizerBars(
-                        isPlaying = isPlaybackActive,
+                        isPlaying = isPlaybackActiveNow,
                         color = TideColors.accent,
                         modifier = Modifier.padding(end = 6.dp)
                     )

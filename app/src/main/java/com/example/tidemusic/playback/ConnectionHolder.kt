@@ -31,7 +31,14 @@ object ConnectionHolder {
         future = MediaController.Builder(context, token).buildAsync().also { f ->
             f.addListener({
                 try {
-                    _connected.value = f.get()
+                    val mc = f.get()
+                    _connected.value = mc
+                    mc.addListener(object : Player.Listener {
+                        override fun onIsPlayingChanged(playing: Boolean) {
+                            (_isPlaying as MutableStateFlow).value = playing
+                        }
+                    })
+                    (_isPlaying as MutableStateFlow).value = mc.isPlaying
                 } catch (e: Throwable) {
                     android.util.Log.e("ConnectionHolder", "Failed to get MediaController", e)
                 }
@@ -45,8 +52,8 @@ object ConnectionHolder {
         _connected.value = null
     }
 
-    /** Convenience: block-free observation of a basic playback state. */
-    val isPlaying: StateFlow<Boolean> = MutableStateFlow(false)
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying
 
     fun Player?.orNull(): Player? = this
 }
