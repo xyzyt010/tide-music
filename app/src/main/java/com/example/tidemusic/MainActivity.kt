@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
         // Enforce IPv4-only networking for yt-dlp and all auxiliary connections (spec Section 6.6).
         System.setProperty("java.net.preferIPv4Stack", "true")
+        com.example.tidemusic.playback.FloatingPillService.resetSessionDismissed()
 
         // lock the player deep-link intent: open the Player screen if the system routed us here.
         val initialDeepLink = intent?.dataString

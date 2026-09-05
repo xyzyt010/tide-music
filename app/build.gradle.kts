@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.tidemusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.5.1"
+        versionCode = 13
+        versionName = "1.5.2"
         // youtubedl-android bundles native binaries; restrict to arm64-v8a and armeabi-v7a for physical Android devices to keep APK size ~125MB.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

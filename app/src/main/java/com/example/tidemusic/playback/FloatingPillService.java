@@ -30,6 +30,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -50,12 +51,12 @@ import java.util.concurrent.Executors;
  * Pure Java overlay service providing the Dynamic Island top widget.
  *
  * Requirements fulfilled:
- * 1. Disappears from the top when no song is playing or when paused (outside app).
- * 2. Complex multi-harmonic soundwave animation in the micro pill.
- * 3. Sleek darker refined grey (#555558) for both the outline stroke and the soundwave bars.
- * 4. True Dynamic Island widget layout with frosted glass blurred artwork backdrop (matching PlayerScreen/CommonUi),
- *    professional persistent buttons (prev, play/pause, next, fav, scrub do NOT close the widget),
- *    outside tap dismisses, and if paused, leaves nothing behind.
+ * 1. Waves in mini pill: Slower, liquid-smooth multi-frequency animation with gentle spring dampening.
+ * 2. Play/pause button: Borderless morphing icon without circular outline, matching PlayerScreen.
+ * 3. Expanded widget shape: Full-width squircle card with 36dp rounded corners matching user reference image,
+ *    frosted glass blurred artwork background, and compact ~164dp height.
+ * 4. Cross button in top-left: Session dismissal preventing the mini pill from appearing again until app restart.
+ * 5. Feature toggle: Fully integrated with SettingsScreen and SettingsManager.
  */
 public class FloatingPillService extends Service {
 
@@ -74,6 +75,7 @@ public class FloatingPillService extends Service {
     public static final int ACCENT_GREY = Color.parseColor("#555558");
 
     private static volatile boolean isAppInForeground = false;
+    private static volatile boolean isSessionDismissed = false;
     private static FloatingPillService sInstance = null;
 
     private WindowManager windowManager;
@@ -89,6 +91,7 @@ public class FloatingPillService extends Service {
     private ImageView cardBackdropView;
     private View cardScrimView;
     private LinearLayout expandedCardContent;
+    private ImageView btnDismissSession;
     private ImageView expandedArtView;
     private TextView tvTitle;
     private TextView tvArtist;
@@ -127,6 +130,11 @@ public class FloatingPillService extends Service {
         }
     };
 
+    /** Resets the cross-button session dismissal when the app restarts fresh. */
+    public static void resetSessionDismissed() {
+        isSessionDismissed = false;
+    }
+
     public static void setAppInForeground(boolean inForeground) {
         isAppInForeground = inForeground;
         FloatingPillService instance = sInstance;
@@ -135,15 +143,31 @@ public class FloatingPillService extends Service {
         }
     }
 
+    public static boolean isFeatureEnabled(Context context) {
+        try {
+            return context.getSharedPreferences("tide_settings", Context.MODE_PRIVATE)
+                    .getBoolean("floating_pill_enabled", true);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
     /**
-     * Primary visibility rule:
-     * - Hidden when Tide Music is open in the foreground.
-     * - When outside the app:
-     *   - If expanded: stays visible so the user can control playback until tapping outside.
-     *   - If mini pill: ONLY visible when actively playing and media is loaded.
+     * Visibility rules:
+     * - If session dismissed via cross button -> NEVER show until app restarts.
+     * - If user disabled feature in Settings -> NEVER show.
+     * - If Tide Music is in foreground -> hide.
+     * - If expanded widget open -> show.
+     * - If mini pill -> ONLY show when actively playing.
      */
     private void updateVisibility() {
         if (rootContainer == null) return;
+
+        if (isSessionDismissed || !isFeatureEnabled(this)) {
+            rootContainer.setVisibility(View.GONE);
+            if (miniEqualizerView != null) miniEqualizerView.stop();
+            return;
+        }
 
         if (isAppInForeground) {
             rootContainer.setVisibility(View.GONE);
@@ -170,7 +194,6 @@ public class FloatingPillService extends Service {
                 miniEqualizerView.start();
             }
         } else {
-            // Disappear from top when no song is playing or paused
             rootContainer.setVisibility(View.GONE);
             if (miniEqualizerView != null) {
                 miniEqualizerView.stop();
@@ -212,6 +235,9 @@ public class FloatingPillService extends Service {
 
     public static void showOrUpdate(Context context, @Nullable String filePath, @Nullable String uriString,
                                     @Nullable String title, @Nullable String artist, long mediaId, boolean isPlaying) {
+        if (isSessionDismissed || !isFeatureEnabled(context)) {
+            return;
+        }
         if (!Settings.canDrawOverlays(context)) {
             Log.d(TAG, "Cannot draw overlays: permission not granted");
             return;
@@ -258,6 +284,11 @@ public class FloatingPillService extends Service {
         }
 
         if (ACTION_UPDATE.equals(intent.getAction())) {
+            if (isSessionDismissed || !isFeatureEnabled(this)) {
+                removeOverlay();
+                return START_STICKY;
+            }
+
             String newFilePath = intent.getStringExtra(EXTRA_FILE_PATH);
             String newUriString = intent.getStringExtra(EXTRA_URI);
             currentTitle = intent.getStringExtra(EXTRA_TITLE);
@@ -309,14 +340,12 @@ public class FloatingPillService extends Service {
 
         layoutParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         layoutParams.x = 0;
-        // Positioned cleanly below camera cutout/status bar
         layoutParams.y = getStatusBarHeight() + dpToPx(4);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         }
 
-        // Custom root container that catches ACTION_OUTSIDE to dismiss expanded card
         rootContainer = new FrameLayout(this) {
             @Override
             public boolean onTouchEvent(MotionEvent event) {
@@ -385,19 +414,18 @@ public class FloatingPillService extends Service {
         miniArtView.setClipToOutline(true);
         miniPillView.addView(miniArtView);
 
-        // Breathing spacer between artwork and soundwave bars
+        // Breathing spacer
         View breathingSpacer = new View(this);
         LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(dpToPx(16), 1);
         breathingSpacer.setLayoutParams(spacerLp);
         miniPillView.addView(breathingSpacer);
 
-        // Complex 6-bar multi-harmonic soundwave in darker refined grey #555558
+        // Liquid-smooth multi-harmonic soundwave in darker refined grey #555558
         miniEqualizerView = new SixBarEqualizerView(this);
         LinearLayout.LayoutParams eqLp = new LinearLayout.LayoutParams(dpToPx(20), dpToPx(14));
         miniEqualizerView.setLayoutParams(eqLp);
         miniPillView.addView(miniEqualizerView);
 
-        // Stationary touch interaction: Swiping left/right dismisses; tap expands to island widget.
         miniPillView.setOnTouchListener(new View.OnTouchListener() {
             private float downX, downY;
             private long downTime;
@@ -446,14 +474,12 @@ public class FloatingPillService extends Service {
                             return true;
                         }
 
-                        // Restore translation/alpha if not dismissed
                         miniPillView.animate()
                                 .translationX(0f)
                                 .alpha(1f)
                                 .setDuration(160)
                                 .start();
 
-                        // Single tap detected: expand into rich floating island widget
                         if (Math.abs(totalDx) < dpToPx(10) && Math.abs(totalDy) < dpToPx(10) && elapsed < 350) {
                             expandCard();
                             return true;
@@ -466,31 +492,33 @@ public class FloatingPillService extends Service {
     }
 
     /**
-     * Builds the authentic Dynamic Island widget:
-     * - Compact squircle island shape (height ~134dp, width ~340dp) anchored right below camera/status bar.
-     * - Frosted glass blurred song artwork background (matching PlayerScreen.kt / CommonUi.kt).
-     * - Working persistent controls that NEVER close the widget on tap.
+     * Builds the expanded widget matching the user's reference image:
+     * - Wide squircle card with 36dp rounded corners spanning almost full width.
+     * - Frosted glass blurred artwork background.
+     * - Top-left cross button (session dismissal).
+     * - Borderless morphing play/pause button (no round outline).
+     * - Compact ~164dp height.
      */
     @SuppressLint("ClickableViewAccessibility")
     private void buildExpandedCardView() {
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int islandWidth = Math.min(dpToPx(344), dm.widthPixels - dpToPx(32));
-        int islandHeight = dpToPx(134);
+        int islandWidth = dm.widthPixels - dpToPx(24);
+        int islandHeight = dpToPx(164);
 
         expandedCardContainer = new FrameLayout(this);
         FrameLayout.LayoutParams containerLp = new FrameLayout.LayoutParams(islandWidth, islandHeight);
         expandedCardContainer.setLayoutParams(containerLp);
 
-        // 32dp continuous squircle island capsule with refined grey outline
+        // 36dp continuous rounded squircle shape with #555558 border
         GradientDrawable islandBg = new GradientDrawable();
         islandBg.setShape(GradientDrawable.RECTANGLE);
-        islandBg.setCornerRadius(dpToPx(32));
+        islandBg.setCornerRadius(dpToPx(36));
         islandBg.setColor(Color.parseColor("#000000"));
         islandBg.setStroke(dpToPx(1.2f), ACCENT_GREY);
         expandedCardContainer.setBackground(islandBg);
         expandedCardContainer.setClipToOutline(true);
 
-        // 1. Frosted glass blurred song artwork backdrop
+        // 1. Frosted glass blurred artwork background
         cardBackdropView = new ImageView(this);
         cardBackdropView.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -513,24 +541,20 @@ public class FloatingPillService extends Service {
         cardScrimView.setBackground(scrimDrawable);
         expandedCardContainer.addView(cardScrimView);
 
-        // 3. Island widget content layout
+        // 3. Main content layout
         expandedCardContent = new LinearLayout(this);
         expandedCardContent.setOrientation(LinearLayout.VERTICAL);
-        expandedCardContent.setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(8));
+        expandedCardContent.setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12));
         expandedCardContainer.addView(expandedCardContent);
 
-        // Absorb touches inside card so clicking anywhere inside NEVER closes the island widget
+        // Absorb touches inside card so clicking anywhere inside never collapses it
         expandedCardContainer.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) {
-                // Consume click inside island
-            }
+            public void onClick(View v) {}
         });
         expandedCardContent.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) {
-                // Consume click inside content
-            }
+            public void onClick(View v) {}
         });
 
         // Swipe up gesture detection on the island card to dismiss
@@ -555,22 +579,60 @@ public class FloatingPillService extends Service {
             }
         });
 
-        // ── Row 1: Header (Artwork, Title & Artist, Open App Button) ──────────
+        // ── Row 1: Header (Cross Button, Artwork, Title & Artist, Open App Button) ──
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
         headerRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(38));
+        LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(46));
         headerRow.setLayoutParams(hLp);
 
+        // Cross button in top-left: permanently stops mini pill for this session until app restarts
+        btnDismissSession = new ImageView(this);
+        int closeBtnSize = dpToPx(30);
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(closeBtnSize, closeBtnSize);
+        closeLp.setMarginEnd(dpToPx(10));
+        btnDismissSession.setLayoutParams(closeLp);
+        btnDismissSession.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnDismissSession.setImageResource(R.drawable.ic_close_notification);
+        btnDismissSession.setColorFilter(Color.parseColor("#A0A0A5"));
+        btnDismissSession.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // Session dismissal: user explicitly closed the pill widget for this app session
+                isSessionDismissed = true;
+                expandedCardContainer.animate()
+                        .alpha(0f)
+                        .scaleX(0.82f)
+                        .scaleY(0.82f)
+                        .setDuration(180)
+                        .withEndAction(new Runnable() {
+                            @Override
+                            public void run() {
+                                expandedCardContainer.setVisibility(View.GONE);
+                                if (miniPillView != null) {
+                                    miniPillView.setVisibility(View.GONE);
+                                }
+                                if (rootContainer != null) {
+                                    rootContainer.setVisibility(View.GONE);
+                                }
+                                resetLayoutParamsToMini();
+                            }
+                        })
+                        .start();
+            }
+        });
+        headerRow.addView(btnDismissSession);
+
+        // Artwork thumbnail (44dp x 44dp with 12dp rounded corners)
         expandedArtView = new ImageView(this);
-        int artSize = dpToPx(38);
+        int artSize = dpToPx(44);
         LinearLayout.LayoutParams artLp = new LinearLayout.LayoutParams(artSize, artSize);
         expandedArtView.setLayoutParams(artLp);
         expandedArtView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         expandedArtView.setImageResource(R.drawable.ic_music_notification);
         GradientDrawable artBg = new GradientDrawable();
         artBg.setShape(GradientDrawable.RECTANGLE);
-        artBg.setCornerRadius(dpToPx(8));
+        artBg.setCornerRadius(dpToPx(12));
         artBg.setColor(Color.parseColor("#1E1E1E"));
         expandedArtView.setBackground(artBg);
         expandedArtView.setClipToOutline(true);
@@ -581,13 +643,13 @@ public class FloatingPillService extends Service {
         textCol.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         textLp.setMarginStart(dpToPx(10));
-        textLp.setMarginEnd(dpToPx(6));
+        textLp.setMarginEnd(dpToPx(8));
         textCol.setLayoutParams(textLp);
 
         tvTitle = new TextView(this);
         tvTitle.setText(currentTitle.isEmpty() ? "Tide Music" : currentTitle);
         tvTitle.setTextColor(Color.WHITE);
-        tvTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+        tvTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
         tvTitle.setSingleLine(true);
         tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -596,7 +658,7 @@ public class FloatingPillService extends Service {
         tvArtist = new TextView(this);
         tvArtist.setText(currentArtist.isEmpty() ? "Ready to play" : currentArtist);
         tvArtist.setTextColor(Color.parseColor("#A0A0A5"));
-        tvArtist.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        tvArtist.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         tvArtist.setSingleLine(true);
         tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
         tvArtist.setPadding(0, dpToPx(1), 0, 0);
@@ -604,7 +666,6 @@ public class FloatingPillService extends Service {
 
         headerRow.addView(textCol);
 
-        // Tap artwork or title to open Tide Music full player
         View.OnClickListener openAppListener = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -614,12 +675,12 @@ public class FloatingPillService extends Service {
         expandedArtView.setOnClickListener(openAppListener);
         textCol.setOnClickListener(openAppListener);
 
-        // Open App icon button (right-aligned)
+        // Open App button (right-aligned)
         ImageView btnOpenApp = new ImageView(this);
         int appIconSize = dpToPx(28);
         LinearLayout.LayoutParams appIconLp = new LinearLayout.LayoutParams(appIconSize, appIconSize);
         btnOpenApp.setLayoutParams(appIconLp);
-        btnOpenApp.setPadding(dpToPx(5), dpToPx(5), dpToPx(5), dpToPx(5));
+        btnOpenApp.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
         btnOpenApp.setImageResource(R.drawable.ic_music_notification);
         btnOpenApp.setColorFilter(Color.parseColor("#26B8FF"));
         btnOpenApp.setOnClickListener(openAppListener);
@@ -631,23 +692,23 @@ public class FloatingPillService extends Service {
         LinearLayout timelineRow = new LinearLayout(this);
         timelineRow.setOrientation(LinearLayout.HORIZONTAL);
         timelineRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(20));
-        tlLp.topMargin = dpToPx(6);
+        LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(28));
+        tlLp.topMargin = dpToPx(8);
         timelineRow.setLayoutParams(tlLp);
 
         tvCurrentTime = new TextView(this);
         tvCurrentTime.setText("00:00");
         tvCurrentTime.setTextColor(Color.parseColor("#9E9EA2"));
-        tvCurrentTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
+        tvCurrentTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
         tvCurrentTime.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(dpToPx(30), LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(dpToPx(34), LinearLayout.LayoutParams.WRAP_CONTENT);
         tvCurrentTime.setLayoutParams(curLp);
         timelineRow.addView(tvCurrentTime);
 
         scrubberView = new ProfessionalScrubberView(this);
-        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0, dpToPx(20), 1f);
-        sbLp.setMarginStart(dpToPx(4));
-        sbLp.setMarginEnd(dpToPx(4));
+        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0, dpToPx(26), 1f);
+        sbLp.setMarginStart(dpToPx(6));
+        sbLp.setMarginEnd(dpToPx(6));
         scrubberView.setLayoutParams(sbLp);
         scrubberView.setOnScrubListener(new ProfessionalScrubberView.OnScrubListener() {
             @Override
@@ -678,9 +739,9 @@ public class FloatingPillService extends Service {
         tvTotalTime = new TextView(this);
         tvTotalTime.setText("00:00");
         tvTotalTime.setTextColor(Color.parseColor("#9E9EA2"));
-        tvTotalTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
+        tvTotalTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
         tvTotalTime.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        LinearLayout.LayoutParams totLp = new LinearLayout.LayoutParams(dpToPx(30), LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams totLp = new LinearLayout.LayoutParams(dpToPx(34), LinearLayout.LayoutParams.WRAP_CONTENT);
         tvTotalTime.setLayoutParams(totLp);
         timelineRow.addView(tvTotalTime);
 
@@ -689,16 +750,16 @@ public class FloatingPillService extends Service {
         // ── Row 3: Playback Controls (Favorite, Previous, Play/Pause, Next) ──
         LinearLayout controlsRow = new LinearLayout(this);
         controlsRow.setOrientation(LinearLayout.HORIZONTAL);
-        controlsRow.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(46));
-        cLp.topMargin = dpToPx(4);
+        controlsRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(52));
+        cLp.topMargin = dpToPx(6);
         controlsRow.setLayoutParams(cLp);
 
         // 1. Favorite Heart Button
         btnFavorite = new ImageView(this);
-        int favSize = dpToPx(34);
+        int favSize = dpToPx(38);
         btnFavorite.setLayoutParams(new LinearLayout.LayoutParams(favSize, favSize));
-        btnFavorite.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnFavorite.setPadding(dpToPx(7), dpToPx(7), dpToPx(7), dpToPx(7));
         btnFavorite.setImageResource(R.drawable.ic_notif_favorite_border);
         btnFavorite.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -720,16 +781,17 @@ public class FloatingPillService extends Service {
         });
         controlsRow.addView(btnFavorite);
 
-        // Spacer
-        View sp1 = new View(this);
-        controlsRow.addView(sp1, new LinearLayout.LayoutParams(dpToPx(24), 1));
+        // Spacer to balance
+        View spacerLeft = new View(this);
+        controlsRow.addView(spacerLeft, new LinearLayout.LayoutParams(0, 1, 1f));
 
         // 2. Previous Track Button
         btnPrev = new ImageView(this);
-        int navSize = dpToPx(36);
+        int navSize = dpToPx(42);
         btnPrev.setLayoutParams(new LinearLayout.LayoutParams(navSize, navSize));
         btnPrev.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
         btnPrev.setImageResource(R.drawable.ic_notif_prev);
+        btnPrev.setColorFilter(Color.WHITE);
         btnPrev.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -742,23 +804,42 @@ public class FloatingPillService extends Service {
         });
         controlsRow.addView(btnPrev);
 
-        // Spacer
-        View sp2 = new View(this);
-        controlsRow.addView(sp2, new LinearLayout.LayoutParams(dpToPx(18), 1));
+        View sp1 = new View(this);
+        controlsRow.addView(sp1, new LinearLayout.LayoutParams(dpToPx(24), 1));
 
-        // 3. Play / Pause Button (42dp circular white button with black icon)
+        // 3. Play / Pause Button: Borderless morphing icon without circular outline
         btnPlayPause = new ImageView(this);
-        int playSize = dpToPx(42);
+        int playSize = dpToPx(48);
         btnPlayPause.setLayoutParams(new LinearLayout.LayoutParams(playSize, playSize));
-        btnPlayPause.setBackgroundResource(R.drawable.bg_play_circle_white);
-        btnPlayPause.setPadding(dpToPx(11), dpToPx(11), dpToPx(11), dpToPx(11));
+        btnPlayPause.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
         btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause_black : R.drawable.ic_play_black);
+        btnPlayPause.setColorFilter(Color.WHITE);
         btnPlayPause.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 try {
+                    // Tactile press scale feedback
+                    btnPlayPause.animate()
+                            .scaleX(0.86f)
+                            .scaleY(0.86f)
+                            .setDuration(90)
+                            .withEndAction(new Runnable() {
+                                @Override
+                                public void run() {
+                                    btnPlayPause.animate()
+                                            .scaleX(1f)
+                                            .scaleY(1f)
+                                            .setDuration(150)
+                                            .setInterpolator(new OvershootInterpolator(1.4f))
+                                            .start();
+                                }
+                            })
+                            .start();
+
                     isPlaying = !isPlaying;
                     btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause_black : R.drawable.ic_play_black);
+                    btnPlayPause.setColorFilter(Color.WHITE);
+
                     if (miniEqualizerView != null) {
                         if (isPlaying) miniEqualizerView.start();
                         else miniEqualizerView.stop();
@@ -776,15 +857,15 @@ public class FloatingPillService extends Service {
         });
         controlsRow.addView(btnPlayPause);
 
-        // Spacer
-        View sp3 = new View(this);
-        controlsRow.addView(sp3, new LinearLayout.LayoutParams(dpToPx(18), 1));
+        View sp2 = new View(this);
+        controlsRow.addView(sp2, new LinearLayout.LayoutParams(dpToPx(24), 1));
 
         // 4. Next Track Button
         btnNext = new ImageView(this);
         btnNext.setLayoutParams(new LinearLayout.LayoutParams(navSize, navSize));
         btnNext.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
         btnNext.setImageResource(R.drawable.ic_notif_next);
+        btnNext.setColorFilter(Color.WHITE);
         btnNext.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -797,6 +878,14 @@ public class FloatingPillService extends Service {
         });
         controlsRow.addView(btnNext);
 
+        // Spacer to balance
+        View spacerRight = new View(this);
+        controlsRow.addView(spacerRight, new LinearLayout.LayoutParams(0, 1, 1f));
+
+        // Right placeholder matching favorite size to keep play/pause dead center
+        View placeholder = new View(this);
+        controlsRow.addView(placeholder, new LinearLayout.LayoutParams(favSize, favSize));
+
         expandedCardContent.addView(controlsRow);
     }
 
@@ -805,8 +894,8 @@ public class FloatingPillService extends Service {
         isExpanded = true;
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int islandWidth = Math.min(dpToPx(344), dm.widthPixels - dpToPx(32));
-        int islandHeight = dpToPx(134);
+        int islandWidth = dm.widthPixels - dpToPx(24);
+        int islandHeight = dpToPx(164);
         int sbHeight = getStatusBarHeight();
 
         layoutParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
@@ -814,7 +903,6 @@ public class FloatingPillService extends Service {
         layoutParams.y = sbHeight + dpToPx(4);
         layoutParams.width = islandWidth;
         layoutParams.height = islandHeight;
-        // WATCH_OUTSIDE_TOUCH allows catching taps outside the island to close it
         layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
@@ -827,10 +915,9 @@ public class FloatingPillService extends Service {
             Log.e(TAG, "Error updating window layout for expand", e);
         }
 
-        // Smooth morphing transition: crossfade & scale
         expandedCardContainer.setAlpha(0f);
-        expandedCardContainer.setScaleX(0.88f);
-        expandedCardContainer.setScaleY(0.88f);
+        expandedCardContainer.setScaleX(0.90f);
+        expandedCardContainer.setScaleY(0.90f);
         expandedCardContainer.setVisibility(View.VISIBLE);
 
         miniPillView.animate()
@@ -860,9 +947,9 @@ public class FloatingPillService extends Service {
     }
 
     /**
-     * Handles closing the expanded island widget:
-     * - If music is currently playing: smoothly morphs back to the mini pill.
-     * - If music is paused: completely dismisses and the mini pill does NOT appear.
+     * Closes the expanded island widget:
+     * - If paused: smoothly vanishes completely, leaving no pill at the top.
+     * - If playing: smoothly morphs back to the mini pill.
      */
     private void collapseOrDismiss() {
         if (!isExpanded || rootContainer == null) return;
@@ -870,11 +957,10 @@ public class FloatingPillService extends Service {
         mainHandler.removeCallbacks(progressUpdater);
 
         if (!isPlaying) {
-            // Paused: smoothly vanish completely, leaving no pill at the top
             expandedCardContainer.animate()
                     .alpha(0f)
-                    .scaleX(0.82f)
-                    .scaleY(0.82f)
+                    .scaleX(0.85f)
+                    .scaleY(0.85f)
                     .setDuration(180)
                     .withEndAction(new Runnable() {
                         @Override
@@ -891,7 +977,6 @@ public class FloatingPillService extends Service {
                     })
                     .start();
         } else {
-            // Actively playing: return smoothly to the mini pill
             collapseToPill();
         }
     }
@@ -908,8 +993,8 @@ public class FloatingPillService extends Service {
 
         expandedCardContainer.animate()
                 .alpha(0f)
-                .scaleX(0.85f)
-                .scaleY(0.85f)
+                .scaleX(0.88f)
+                .scaleY(0.88f)
                 .setDuration(180)
                 .withEndAction(new Runnable() {
                     @Override
@@ -958,7 +1043,7 @@ public class FloatingPillService extends Service {
 
         // 1. Equalizer animation state
         if (miniEqualizerView != null) {
-            if (isPlaying && !isAppInForeground) {
+            if (isPlaying && !isAppInForeground && !isSessionDismissed && isFeatureEnabled(this)) {
                 miniEqualizerView.start();
             } else {
                 miniEqualizerView.stop();
@@ -968,6 +1053,7 @@ public class FloatingPillService extends Service {
         // 2. Play/pause button in expanded island
         if (btnPlayPause != null) {
             btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause_black : R.drawable.ic_play_black);
+            btnPlayPause.setColorFilter(Color.WHITE);
         }
 
         // 3. Text info
@@ -1001,11 +1087,10 @@ public class FloatingPillService extends Service {
                     } catch (Throwable ignored) {}
 
                     cachedArtwork = bmp;
-                    // Pre-blur artwork for frosted glass backdrop (runs in <3ms on 80x80 bitmap)
                     if (cachedArtwork != null) {
                         try {
                             Bitmap downscaled = Bitmap.createScaledBitmap(cachedArtwork, 80, 80, true);
-                            blurredArtwork = fastBlur(downscaled, 18);
+                            blurredArtwork = fastBlur(downscaled, 20);
                         } catch (Throwable ignored) {
                             blurredArtwork = null;
                         }
@@ -1167,7 +1252,6 @@ public class FloatingPillService extends Service {
 
     /**
      * Ultra-fast pure Java StackBlur algorithm by Mario Klingemann.
-     * Generates gaussian-level blurred artwork backgrounds on all Android versions without GPU overhead.
      */
     public static Bitmap fastBlur(Bitmap sentBitmap, int radius) {
         if (sentBitmap == null || radius < 1) return null;
@@ -1276,7 +1360,7 @@ public class FloatingPillService extends Service {
 
                     rinsum -= sir[0];
                     ginsum -= sir[1];
-                    binsum += sir[2];
+                    binsum -= sir[2];
 
                     yi++;
                 }
@@ -1371,12 +1455,12 @@ public class FloatingPillService extends Service {
     }
 
     /**
-     * Complex, organic 6-bar audio visualizer in darker refined grey (#555558).
+     * Slower, liquid-smooth 6-bar audio visualizer in darker refined grey (#555558).
      *
      * Features:
-     * - Multi-harmonic superimposed audio frequency spectrum (Sub-bass, Bass, Low-mids, Lead vocal, High-mids, Treble).
+     * - Multi-harmonic superimposed audio frequency bands with organic, graceful tempo.
+     * - Fluid exponential spring dampening for liquid-smooth transitions without rough/fast jumps.
      * - Symmetrical expansion from vertical center (up and down).
-     * - Dynamic non-linear power response for rhythmic bounce and natural decay.
      * - Rests neatly at subtle center dots when paused.
      */
     public static class SixBarEqualizerView extends View {
@@ -1386,10 +1470,10 @@ public class FloatingPillService extends Service {
         private final RectF rect = new RectF();
         private final float[] currentHeights = new float[]{0.18f, 0.18f, 0.18f, 0.18f, 0.18f, 0.18f};
 
-        // Multi-frequency harmonic spectrum parameters across 6 audio frequency bands
-        private final float[] f1 = new float[]{1.4f, 2.1f, 3.2f, 2.8f, 4.6f, 5.8f};
-        private final float[] f2 = new float[]{0.6f, 1.2f, 1.8f, 4.3f, 2.2f, 3.7f};
-        private final float[] f3 = new float[]{2.7f, 3.4f, 0.9f, 1.5f, 6.1f, 8.2f};
+        // Gentle, musical, slower tempo frequencies across the 6 frequency bands
+        private final float[] f1 = new float[]{0.80f, 1.20f, 1.65f, 1.40f, 1.85f, 2.15f};
+        private final float[] f2 = new float[]{0.40f, 0.70f, 1.05f, 1.95f, 1.20f, 1.55f};
+        private final float[] f3 = new float[]{1.25f, 1.65f, 0.60f, 0.85f, 2.35f, 2.65f};
         private final float[] phase1 = new float[]{0.0f, 1.2f, 2.4f, 0.8f, 1.9f, 3.1f};
         private final float[] phase2 = new float[]{1.7f, 0.5f, 2.9f, 3.6f, 0.3f, 1.4f};
         private final float[] phase3 = new float[]{2.1f, 3.8f, 1.1f, 0.4f, 2.7f, 0.9f};
@@ -1417,7 +1501,7 @@ public class FloatingPillService extends Service {
                 public void onAnimationUpdate(ValueAnimator animation) {
                     long now = System.currentTimeMillis();
                     if (startTimeMs == 0) startTimeMs = now;
-                    float t = (now - startTimeMs) / 1000f; // Continuous seconds
+                    float t = (now - startTimeMs) / 1000f;
 
                     for (int i = 0; i < BAR_COUNT; i++) {
                         float w1 = (float) Math.sin(t * f1[i] * 2 * Math.PI + phase1[i]);
@@ -1426,10 +1510,11 @@ public class FloatingPillService extends Service {
 
                         float blended = (w1 * 0.52f) + (w2 * 0.32f) + (w3 * 0.16f);
                         float norm = Math.max(0f, Math.min(1f, (blended + 1f) * 0.5f));
-                        float punch = (float) Math.pow(norm, 1.38);
+                        float punch = (float) Math.pow(norm, 1.35);
 
                         float target = minH[i] + punch * (maxH[i] - minH[i]);
-                        currentHeights[i] += (target - currentHeights[i]) * 0.42f;
+                        // Smooth exponential spring dampening for liquid-smooth flow
+                        currentHeights[i] += (target - currentHeights[i]) * 0.18f;
                     }
                     invalidate();
                 }
@@ -1489,7 +1574,7 @@ public class FloatingPillService extends Service {
     }
 
     /**
-     * Professional Canvas scrubber view matching PlayerScreen.kt aesthetic.
+     * Professional Canvas scrubber view.
      */
     public static class ProfessionalScrubberView extends View {
 

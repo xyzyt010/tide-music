@@ -106,10 +106,18 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             val context = androidx.compose.ui.platform.LocalContext.current
             var canDrawOverlays by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
+            val floatingPillEnabled by ServiceLocator.settingsManager.isFloatingPillEnabled.collectAsState()
+
             SettingsRow(
                 icon = Icons.Rounded.MusicNote,
-                title = "Top Floating Capsule (Camera Cutout)",
-                subtitle = if (canDrawOverlays) "Active outside app while music is playing" else "Tap to grant 'Display over other apps' permission",
+                title = "Dynamic Island Mini Pill",
+                subtitle = if (!canDrawOverlays) {
+                    "Tap to grant 'Display over other apps' permission"
+                } else if (floatingPillEnabled) {
+                    "Active at top of screen outside the app while music plays"
+                } else {
+                    "Disabled (will not appear outside the app)"
+                },
                 onClick = {
                     if (!canDrawOverlays) {
                         try {
@@ -119,12 +127,18 @@ fun SettingsScreen(onBack: () -> Unit) {
                             )
                             context.startActivity(intent)
                         } catch (_: Exception) {}
+                    } else {
+                        val next = !floatingPillEnabled
+                        ServiceLocator.settingsManager.setFloatingPillEnabled(next)
+                        if (!next) {
+                            com.example.tidemusic.playback.FloatingPillService.hide(context)
+                        }
                     }
                 },
                 trailing = {
                     Switch(
-                        checked = canDrawOverlays,
-                        onCheckedChange = {
+                        checked = floatingPillEnabled && canDrawOverlays,
+                        onCheckedChange = { checked ->
                             if (!canDrawOverlays) {
                                 try {
                                     val intent = android.content.Intent(
@@ -133,9 +147,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                                     )
                                     context.startActivity(intent)
                                 } catch (_: Exception) {}
+                            } else {
+                                ServiceLocator.settingsManager.setFloatingPillEnabled(checked)
+                                if (!checked) {
+                                    com.example.tidemusic.playback.FloatingPillService.hide(context)
+                                }
                             }
                         },
-                        colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = TideColors.accent,
+                            checkedThumbColor = androidx.compose.ui.graphics.Color.White,
+                        ),
                     )
                 },
             )
