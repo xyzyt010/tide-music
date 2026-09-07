@@ -35,6 +35,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
@@ -99,9 +100,24 @@ public class FloatingPillService extends Service {
     private TextView tvTotalTime;
     private ProfessionalScrubberView scrubberView;
     private ImageView btnFavorite;
-    private ImageView btnPlayPause;
+    private ImageView btnShuffle;
     private ImageView btnPrev;
+    private ImageView btnPlayPause;
     private ImageView btnNext;
+    private ImageView btnRepeat;
+
+    // Volume controls
+    private ImageView btnVolumeMute;
+    private VolumeScrubberView volumeScrubber;
+    private ImageView btnVolumeMax;
+    private android.media.AudioManager audioManager = null;
+
+    // Queue Carousel
+    private TextView tvQueueLabel;
+    private TextView tvQueueCount;
+    private android.widget.HorizontalScrollView queueScrollView;
+    private LinearLayout queueContainer;
+    private final android.util.LruCache<Long, Bitmap> queueThumbCache = new android.util.LruCache<>(40);
 
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -125,6 +141,32 @@ public class FloatingPillService extends Service {
                 updateTimelineProgress();
                 if (isPlaying) {
                     mainHandler.postDelayed(this, 500);
+                }
+            }
+        }
+    };
+
+    private boolean isScreenOn = true;
+    private final android.content.BroadcastReceiver screenStateReceiver = new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || intent.getAction() == null) return;
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                isScreenOn = false;
+                if (miniEqualizerView != null) {
+                    miniEqualizerView.stop();
+                }
+                mainHandler.removeCallbacks(progressUpdater);
+            } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                isScreenOn = true;
+                if (isPlaying && !isAppInForeground && !isSessionDismissed && isFeatureEnabled(FloatingPillService.this)) {
+                    if (miniEqualizerView != null) {
+                        miniEqualizerView.start();
+                    }
+                }
+                if (isExpanded) {
+                    mainHandler.post(progressUpdater);
+                    updateContent(false);
                 }
             }
         }
@@ -273,6 +315,15 @@ public class FloatingPillService extends Service {
         super.onCreate();
         sInstance = this;
         windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        audioManager = (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        try {
+            android.content.IntentFilter filter = new android.content.IntentFilter();
+            filter.addAction(Intent.ACTION_SCREEN_OFF);
+            filter.addAction(Intent.ACTION_SCREEN_ON);
+            registerReceiver(screenStateReceiver, filter);
+        } catch (Exception e) {
+            Log.e(TAG, "Error registering screen state receiver", e);
+        }
     }
 
     @Override
@@ -503,7 +554,7 @@ public class FloatingPillService extends Service {
     private void buildExpandedCardView() {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         int islandWidth = dm.widthPixels - dpToPx(24);
-        int islandHeight = dpToPx(164);
+        int islandHeight = dpToPx(295);
 
         expandedCardContainer = new FrameLayout(this);
         FrameLayout.LayoutParams containerLp = new FrameLayout.LayoutParams(islandWidth, islandHeight);
@@ -675,6 +726,41 @@ public class FloatingPillService extends Service {
         expandedArtView.setOnClickListener(openAppListener);
         textCol.setOnClickListener(openAppListener);
 
+        // Favorite Button in Header Row
+        btnFavorite = new ImageView(this);
+        int favSize = dpToPx(28);
+        LinearLayout.LayoutParams favLp = new LinearLayout.LayoutParams(favSize, favSize);
+        favLp.setMarginEnd(dpToPx(6));
+        btnFavorite.setLayoutParams(favLp);
+        btnFavorite.setPadding(dpToPx(3), dpToPx(3), dpToPx(3), dpToPx(3));
+        btnFavorite.setImageResource(R.drawable.ic_notif_favorite_border);
+        btnFavorite.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    btnFavorite.animate().scaleX(0.82f).scaleY(0.82f).setDuration(80).withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnFavorite.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                        }
+                    }).start();
+
+                    PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+                    controller.toggleFavoriteCurrentSong(new kotlin.jvm.functions.Function1<Boolean, kotlin.Unit>() {
+                        @Override
+                        public kotlin.Unit invoke(Boolean isFav) {
+                            isCurrentSongFavorite = Boolean.TRUE.equals(isFav);
+                            updateFavoriteIcon();
+                            return kotlin.Unit.INSTANCE;
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.e(TAG, "Error toggling favorite", e);
+                }
+            }
+        });
+        headerRow.addView(btnFavorite);
+
         // Open App button (right-aligned)
         ImageView btnOpenApp = new ImageView(this);
         int appIconSize = dpToPx(28);
@@ -747,47 +833,51 @@ public class FloatingPillService extends Service {
 
         expandedCardContent.addView(timelineRow);
 
-        // ── Row 3: Playback Controls (Favorite, Previous, Play/Pause, Next) ──
+        // ── Row 3: Playback Controls (Shuffle, Previous, Play/Pause, Next, Repeat) ──
         LinearLayout controlsRow = new LinearLayout(this);
         controlsRow.setOrientation(LinearLayout.HORIZONTAL);
         controlsRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(52));
-        cLp.topMargin = dpToPx(6);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(46));
+        cLp.topMargin = dpToPx(4);
         controlsRow.setLayoutParams(cLp);
 
-        // 1. Favorite Heart Button
-        btnFavorite = new ImageView(this);
-        int favSize = dpToPx(38);
-        btnFavorite.setLayoutParams(new LinearLayout.LayoutParams(favSize, favSize));
-        btnFavorite.setPadding(dpToPx(7), dpToPx(7), dpToPx(7), dpToPx(7));
-        btnFavorite.setImageResource(R.drawable.ic_notif_favorite_border);
-        btnFavorite.setOnClickListener(new View.OnClickListener() {
+        // 1. Shuffle Button (matching PlayerScreen icon, colors, and toast)
+        btnShuffle = new ImageView(this);
+        int shuffleSize = dpToPx(36);
+        btnShuffle.setLayoutParams(new LinearLayout.LayoutParams(shuffleSize, shuffleSize));
+        btnShuffle.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnShuffle.setImageResource(R.drawable.ic_notif_shuffle_off);
+        btnShuffle.setColorFilter(Color.parseColor("#A0A0A5"));
+        btnShuffle.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 try {
-                    PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
-                    controller.toggleFavoriteCurrentSong(new kotlin.jvm.functions.Function1<Boolean, kotlin.Unit>() {
+                    btnShuffle.animate().scaleX(0.82f).scaleY(0.82f).setDuration(80).withEndAction(new Runnable() {
                         @Override
-                        public kotlin.Unit invoke(Boolean isFav) {
-                            isCurrentSongFavorite = Boolean.TRUE.equals(isFav);
-                            updateFavoriteIcon();
-                            return kotlin.Unit.INSTANCE;
+                        public void run() {
+                            btnShuffle.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
                         }
-                    });
+                    }).start();
+
+                    PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+                    boolean next = controller.toggleShuffle();
+                    updateShuffleButton();
+                    Toast.makeText(FloatingPillService.this,
+                            next ? "Shuffle mode is on" : "Shuffle mode is off",
+                            Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Log.e(TAG, "Error toggling favorite", e);
+                    Log.e(TAG, "Error toggling shuffle", e);
                 }
             }
         });
-        controlsRow.addView(btnFavorite);
+        controlsRow.addView(btnShuffle);
 
-        // Spacer to balance
         View spacerLeft = new View(this);
         controlsRow.addView(spacerLeft, new LinearLayout.LayoutParams(0, 1, 1f));
 
         // 2. Previous Track Button
         btnPrev = new ImageView(this);
-        int navSize = dpToPx(42);
+        int navSize = dpToPx(40);
         btnPrev.setLayoutParams(new LinearLayout.LayoutParams(navSize, navSize));
         btnPrev.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
         btnPrev.setImageResource(R.drawable.ic_notif_prev);
@@ -796,6 +886,12 @@ public class FloatingPillService extends Service {
             @Override
             public void onClick(View v) {
                 try {
+                    btnPrev.animate().scaleX(0.85f).scaleY(0.85f).setDuration(70).withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnPrev.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
+                        }
+                    }).start();
                     ServiceLocator.INSTANCE.getPlaybackController().previous();
                 } catch (Exception e) {
                     Log.e(TAG, "Error seeking previous", e);
@@ -805,11 +901,11 @@ public class FloatingPillService extends Service {
         controlsRow.addView(btnPrev);
 
         View sp1 = new View(this);
-        controlsRow.addView(sp1, new LinearLayout.LayoutParams(dpToPx(24), 1));
+        controlsRow.addView(sp1, new LinearLayout.LayoutParams(dpToPx(18), 1));
 
         // 3. Play / Pause Button: Borderless morphing icon without circular outline
         btnPlayPause = new ImageView(this);
-        int playSize = dpToPx(48);
+        int playSize = dpToPx(46);
         btnPlayPause.setLayoutParams(new LinearLayout.LayoutParams(playSize, playSize));
         btnPlayPause.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
         btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause_black : R.drawable.ic_play_black);
@@ -818,7 +914,6 @@ public class FloatingPillService extends Service {
             @Override
             public void onClick(View v) {
                 try {
-                    // Tactile press scale feedback
                     btnPlayPause.animate()
                             .scaleX(0.86f)
                             .scaleY(0.86f)
@@ -858,7 +953,7 @@ public class FloatingPillService extends Service {
         controlsRow.addView(btnPlayPause);
 
         View sp2 = new View(this);
-        controlsRow.addView(sp2, new LinearLayout.LayoutParams(dpToPx(24), 1));
+        controlsRow.addView(sp2, new LinearLayout.LayoutParams(dpToPx(18), 1));
 
         // 4. Next Track Button
         btnNext = new ImageView(this);
@@ -870,6 +965,12 @@ public class FloatingPillService extends Service {
             @Override
             public void onClick(View v) {
                 try {
+                    btnNext.animate().scaleX(0.85f).scaleY(0.85f).setDuration(70).withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnNext.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
+                        }
+                    }).start();
                     ServiceLocator.INSTANCE.getPlaybackController().next();
                 } catch (Exception e) {
                     Log.e(TAG, "Error seeking next", e);
@@ -878,15 +979,143 @@ public class FloatingPillService extends Service {
         });
         controlsRow.addView(btnNext);
 
-        // Spacer to balance
         View spacerRight = new View(this);
         controlsRow.addView(spacerRight, new LinearLayout.LayoutParams(0, 1, 1f));
 
-        // Right placeholder matching favorite size to keep play/pause dead center
-        View placeholder = new View(this);
-        controlsRow.addView(placeholder, new LinearLayout.LayoutParams(favSize, favSize));
+        // 5. Repeat Button (matching PlayerScreen icon, colors, and toast)
+        btnRepeat = new ImageView(this);
+        btnRepeat.setLayoutParams(new LinearLayout.LayoutParams(shuffleSize, shuffleSize));
+        btnRepeat.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+        btnRepeat.setImageResource(R.drawable.ic_notif_repeat_all);
+        btnRepeat.setColorFilter(Color.parseColor("#A0A0A5"));
+        btnRepeat.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    btnRepeat.animate().scaleX(0.82f).scaleY(0.82f).setDuration(80).withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnRepeat.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                        }
+                    }).start();
+
+                    PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+                    int nextMode = controller.cycleRepeat();
+                    updateRepeatButton();
+                    Toast.makeText(FloatingPillService.this,
+                            nextMode == androidx.media3.common.Player.REPEAT_MODE_ONE ? "Repeating current song" : "Repeating queue",
+                            Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error cycling repeat", e);
+                }
+            }
+        });
+        controlsRow.addView(btnRepeat);
 
         expandedCardContent.addView(controlsRow);
+
+        // ── Row 4: Volume Control Slider ─────────────────────────────────────────
+        LinearLayout volumeRow = new LinearLayout(this);
+        volumeRow.setOrientation(LinearLayout.HORIZONTAL);
+        volumeRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams vLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(24));
+        vLp.topMargin = dpToPx(5);
+        volumeRow.setLayoutParams(vLp);
+
+        btnVolumeMute = new ImageView(this);
+        int volIconSize = dpToPx(24);
+        btnVolumeMute.setLayoutParams(new LinearLayout.LayoutParams(volIconSize, volIconSize));
+        btnVolumeMute.setPadding(dpToPx(3), dpToPx(3), dpToPx(3), dpToPx(3));
+        btnVolumeMute.setImageResource(R.drawable.ic_volume_down);
+        btnVolumeMute.setColorFilter(Color.parseColor("#A0A0A5"));
+        btnVolumeMute.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleVolumeMute();
+            }
+        });
+        volumeRow.addView(btnVolumeMute);
+
+        volumeScrubber = new VolumeScrubberView(this);
+        LinearLayout.LayoutParams vSbLp = new LinearLayout.LayoutParams(0, dpToPx(22), 1f);
+        vSbLp.setMarginStart(dpToPx(8));
+        vSbLp.setMarginEnd(dpToPx(8));
+        volumeScrubber.setLayoutParams(vSbLp);
+        volumeScrubber.setOnVolumeChangeListener(new VolumeScrubberView.OnVolumeChangeListener() {
+            @Override
+            public void onVolumeChanged(int volume, boolean fromUser) {
+                if (fromUser && audioManager != null) {
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, volume, 0);
+                    updateVolumeIcons(volume);
+                }
+            }
+        });
+        volumeRow.addView(volumeScrubber);
+
+        btnVolumeMax = new ImageView(this);
+        btnVolumeMax.setLayoutParams(new LinearLayout.LayoutParams(volIconSize, volIconSize));
+        btnVolumeMax.setPadding(dpToPx(3), dpToPx(3), dpToPx(3), dpToPx(3));
+        btnVolumeMax.setImageResource(R.drawable.ic_volume_up);
+        btnVolumeMax.setColorFilter(Color.parseColor("#A0A0A5"));
+        btnVolumeMax.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setVolumeMax();
+            }
+        });
+        volumeRow.addView(btnVolumeMax);
+
+        expandedCardContent.addView(volumeRow);
+
+        // ── Row 5: Queue Carousel ─────────────────────────────────────────
+        LinearLayout queueSection = new LinearLayout(this);
+        queueSection.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams qSectionLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        qSectionLp.topMargin = dpToPx(8);
+        queueSection.setLayoutParams(qSectionLp);
+
+        LinearLayout queueHeader = new LinearLayout(this);
+        queueHeader.setOrientation(LinearLayout.HORIZONTAL);
+        queueHeader.setGravity(Gravity.CENTER_VERTICAL);
+        queueHeader.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        tvQueueLabel = new TextView(this);
+        tvQueueLabel.setText("UP NEXT");
+        tvQueueLabel.setTextColor(Color.parseColor("#8E8E93"));
+        tvQueueLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f);
+        tvQueueLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        queueHeader.addView(tvQueueLabel);
+
+        tvQueueCount = new TextView(this);
+        tvQueueCount.setText("");
+        tvQueueCount.setTextColor(Color.parseColor("#636366"));
+        tvQueueCount.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f);
+        tvQueueCount.setPadding(dpToPx(6), 0, 0, 0);
+        queueHeader.addView(tvQueueCount);
+
+        queueSection.addView(queueHeader);
+
+        queueScrollView = new android.widget.HorizontalScrollView(this);
+        queueScrollView.setHorizontalScrollBarEnabled(false);
+        queueScrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(76)
+        );
+        svLp.topMargin = dpToPx(4);
+        queueScrollView.setLayoutParams(svLp);
+
+        queueContainer = new LinearLayout(this);
+        queueContainer.setOrientation(LinearLayout.HORIZONTAL);
+        queueContainer.setGravity(Gravity.CENTER_VERTICAL);
+        queueScrollView.addView(queueContainer, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        queueSection.addView(queueScrollView);
+
+        expandedCardContent.addView(queueSection);
     }
 
     private void expandCard() {
@@ -895,7 +1124,7 @@ public class FloatingPillService extends Service {
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
         int islandWidth = dm.widthPixels - dpToPx(24);
-        int islandHeight = dpToPx(164);
+        int islandHeight = dpToPx(295);
         int sbHeight = getStatusBarHeight();
 
         layoutParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
@@ -943,6 +1172,10 @@ public class FloatingPillService extends Service {
 
         updateTimelineProgress();
         checkFavoriteStatus();
+        updateShuffleButton();
+        updateRepeatButton();
+        updateVolumeSlider();
+        populateQueueCarousel();
         mainHandler.post(progressUpdater);
     }
 
@@ -1015,7 +1248,7 @@ public class FloatingPillService extends Service {
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
 
-        if (isPlaying && miniEqualizerView != null) {
+        if (isPlaying && isScreenOn && miniEqualizerView != null) {
             miniEqualizerView.start();
         }
     }
@@ -1043,7 +1276,7 @@ public class FloatingPillService extends Service {
 
         // 1. Equalizer animation state
         if (miniEqualizerView != null) {
-            if (isPlaying && !isAppInForeground && !isSessionDismissed && isFeatureEnabled(this)) {
+            if (isPlaying && isScreenOn && !isAppInForeground && !isSessionDismissed && isFeatureEnabled(this)) {
                 miniEqualizerView.start();
             } else {
                 miniEqualizerView.stop();
@@ -1140,6 +1373,11 @@ public class FloatingPillService extends Service {
 
         if (isExpanded) {
             updateTimelineProgress();
+            updateShuffleButton();
+            updateRepeatButton();
+            if (songChanged) {
+                populateQueueCarousel();
+            }
         }
     }
 
@@ -1193,6 +1431,266 @@ public class FloatingPillService extends Service {
         }
     }
 
+    private void updateShuffleButton() {
+        if (btnShuffle == null) return;
+        try {
+            PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+            boolean shuffleOn = controller.isShuffleEnabled();
+            if (shuffleOn) {
+                btnShuffle.setImageResource(R.drawable.ic_notif_shuffle_on);
+                btnShuffle.setColorFilter(Color.parseColor("#26B8FF"));
+            } else {
+                btnShuffle.setImageResource(R.drawable.ic_notif_shuffle_off);
+                btnShuffle.setColorFilter(Color.parseColor("#A0A0A5"));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating shuffle button", e);
+        }
+    }
+
+    private void updateRepeatButton() {
+        if (btnRepeat == null) return;
+        try {
+            PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+            int mode = controller.getRepeatMode();
+            if (mode == androidx.media3.common.Player.REPEAT_MODE_ONE) {
+                btnRepeat.setImageResource(R.drawable.ic_notif_repeat_one);
+                btnRepeat.setColorFilter(Color.parseColor("#26B8FF"));
+            } else {
+                btnRepeat.setImageResource(R.drawable.ic_notif_repeat_all);
+                btnRepeat.setColorFilter(Color.parseColor("#A0A0A5"));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating repeat button", e);
+        }
+    }
+
+    private void updateVolumeSlider() {
+        if (audioManager == null) {
+            audioManager = (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (audioManager == null || volumeScrubber == null) return;
+        try {
+            int maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+            int curVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+            volumeScrubber.setMaxVolume(maxVol);
+            volumeScrubber.setVolume(curVol);
+            updateVolumeIcons(curVol);
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating volume slider", e);
+        }
+    }
+
+    private void updateVolumeIcons(int currentVol) {
+        if (btnVolumeMute != null) {
+            if (currentVol == 0) {
+                btnVolumeMute.setImageResource(R.drawable.ic_volume_mute);
+                btnVolumeMute.setColorFilter(Color.parseColor("#FF3B30"));
+            } else {
+                btnVolumeMute.setImageResource(R.drawable.ic_volume_down);
+                btnVolumeMute.setColorFilter(Color.parseColor("#A0A0A5"));
+            }
+        }
+        if (btnVolumeMax != null) {
+            btnVolumeMax.setColorFilter(Color.parseColor("#A0A0A5"));
+        }
+    }
+
+    private int preMuteVolume = -1;
+    private void toggleVolumeMute() {
+        if (audioManager == null) {
+            audioManager = (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (audioManager == null) return;
+        try {
+            int curVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+            int maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+            if (curVol > 0) {
+                preMuteVolume = curVol;
+                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0);
+                if (volumeScrubber != null) volumeScrubber.setVolume(0);
+                updateVolumeIcons(0);
+            } else {
+                int restoreVol = (preMuteVolume > 0) ? preMuteVolume : Math.max(1, maxVol / 3);
+                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, restoreVol, 0);
+                if (volumeScrubber != null) volumeScrubber.setVolume(restoreVol);
+                updateVolumeIcons(restoreVol);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error toggling mute", e);
+        }
+    }
+
+    private void setVolumeMax() {
+        if (audioManager == null) {
+            audioManager = (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (audioManager == null) return;
+        try {
+            int maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, maxVol, 0);
+            if (volumeScrubber != null) volumeScrubber.setVolume(maxVol);
+            updateVolumeIcons(maxVol);
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting max volume", e);
+        }
+    }
+
+    private void populateQueueCarousel() {
+        if (queueContainer == null) return;
+        java.util.List<PlaybackController.QueueSongItem> queueItems = java.util.Collections.emptyList();
+        try {
+            PlaybackController controller = ServiceLocator.INSTANCE.getPlaybackController();
+            queueItems = controller.getQueueItems();
+        } catch (Exception e) {
+            Log.e(TAG, "Error fetching queue items", e);
+        }
+
+        if (tvQueueCount != null) {
+            tvQueueCount.setText(queueItems.isEmpty() ? "" : "(" + queueItems.size() + ")");
+        }
+
+        queueContainer.removeAllViews();
+        if (queueItems.isEmpty()) {
+            TextView emptyTv = new TextView(this);
+            emptyTv.setText("Queue is empty");
+            emptyTv.setTextColor(Color.parseColor("#636366"));
+            emptyTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+            emptyTv.setPadding(dpToPx(4), dpToPx(8), 0, 0);
+            queueContainer.addView(emptyTv);
+            return;
+        }
+
+        View currentSelectedView = null;
+        for (int i = 0; i < queueItems.size(); i++) {
+            final PlaybackController.QueueSongItem item = queueItems.get(i);
+            final int itemIndex = item.getIndex();
+
+            LinearLayout itemLayout = new LinearLayout(this);
+            itemLayout.setOrientation(LinearLayout.VERTICAL);
+            itemLayout.setGravity(Gravity.CENTER_HORIZONTAL);
+            LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(dpToPx(56), LinearLayout.LayoutParams.MATCH_PARENT);
+            itemLp.setMarginEnd(dpToPx(8));
+            itemLayout.setLayoutParams(itemLp);
+
+            // Thumbnail container with rounded outline
+            FrameLayout thumbContainer = new FrameLayout(this);
+            int thumbSize = dpToPx(44);
+            LinearLayout.LayoutParams tcLp = new LinearLayout.LayoutParams(thumbSize, thumbSize);
+            thumbContainer.setLayoutParams(tcLp);
+
+            GradientDrawable thumbBg = new GradientDrawable();
+            thumbBg.setShape(GradientDrawable.RECTANGLE);
+            thumbBg.setCornerRadius(dpToPx(8));
+            thumbBg.setColor(Color.parseColor("#1C1C1E"));
+            if (item.isCurrent()) {
+                thumbBg.setStroke(dpToPx(2), Color.parseColor("#26B8FF"));
+            }
+            thumbContainer.setBackground(thumbBg);
+            thumbContainer.setClipToOutline(true);
+
+            ImageView ivArt = new ImageView(this);
+            ivArt.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            ivArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            ivArt.setImageResource(R.drawable.ic_music_notification);
+            thumbContainer.addView(ivArt);
+
+            // Load art from cache or async
+            final long itemId = item.getId();
+            Bitmap cached = queueThumbCache.get(itemId);
+            if (cached != null) {
+                ivArt.setImageBitmap(cached);
+            } else {
+                final String fPath = item.getFilePath();
+                final String uStr = item.getUri();
+                ioExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            byte[] bytes = AudioArtworkFetcher.Companion.extractEmbeddedPicture(
+                                    fPath != null ? fPath : "",
+                                    uStr != null ? uStr : "",
+                                    FloatingPillService.this
+                            );
+                            if (bytes != null && bytes.length > 0) {
+                                Bitmap raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                                if (raw != null) {
+                                    final Bitmap scaled = Bitmap.createScaledBitmap(raw, 96, 96, true);
+                                    queueThumbCache.put(itemId, scaled);
+                                    mainHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            ivArt.setImageBitmap(scaled);
+                                        }
+                                    });
+                                }
+                            }
+                        } catch (Throwable ignored) {}
+                    }
+                });
+            }
+
+            itemLayout.addView(thumbContainer);
+
+            // Song title
+            TextView tvSongTitle = new TextView(this);
+            tvSongTitle.setText(item.getTitle());
+            tvSongTitle.setTextColor(item.isCurrent() ? Color.parseColor("#26B8FF") : Color.WHITE);
+            tvSongTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9.5f);
+            tvSongTitle.setSingleLine(true);
+            tvSongTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tvSongTitle.setGravity(Gravity.CENTER_HORIZONTAL);
+            tvSongTitle.setPadding(0, dpToPx(2), 0, 0);
+            itemLayout.addView(tvSongTitle);
+
+            // Song artist
+            TextView tvSongArtist = new TextView(this);
+            tvSongArtist.setText(item.getArtist());
+            tvSongArtist.setTextColor(Color.parseColor("#8E8E93"));
+            tvSongArtist.setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f);
+            tvSongArtist.setSingleLine(true);
+            tvSongArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tvSongArtist.setGravity(Gravity.CENTER_HORIZONTAL);
+            itemLayout.addView(tvSongArtist);
+
+            if (item.isCurrent()) {
+                currentSelectedView = itemLayout;
+            }
+
+            // Click to play from queue
+            itemLayout.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    try {
+                        itemLayout.animate().scaleX(0.88f).scaleY(0.88f).setDuration(80).withEndAction(new Runnable() {
+                            @Override
+                            public void run() {
+                                itemLayout.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                            }
+                        }).start();
+
+                        ServiceLocator.INSTANCE.getPlaybackController().playQueueItem(itemIndex);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error playing item " + itemIndex + " from queue", e);
+                    }
+                }
+            });
+
+            queueContainer.addView(itemLayout);
+        }
+
+        if (currentSelectedView != null && queueScrollView != null) {
+            final View targetView = currentSelectedView;
+            queueScrollView.post(new Runnable() {
+                @Override
+                public void run() {
+                    int scrollX = targetView.getLeft() - dpToPx(16);
+                    queueScrollView.smoothScrollTo(Math.max(0, scrollX), 0);
+                }
+            });
+        }
+    }
+
     private void launchPlayerScreen() {
         try {
             Intent launchIntent = new Intent(this, MainActivity.class);
@@ -1222,6 +1720,9 @@ public class FloatingPillService extends Service {
         if (sInstance == this) {
             sInstance = null;
         }
+        try {
+            unregisterReceiver(screenStateReceiver);
+        } catch (Exception ignored) {}
         removeOverlay();
         ioExecutor.shutdown();
         super.onDestroy();
@@ -1690,6 +2191,137 @@ public class FloatingPillService extends Service {
             currentProgress = (long) (fraction * maxDuration);
             if (scrubListener != null) {
                 scrubListener.onProgressChanged(currentProgress, true);
+            }
+        }
+
+        private float dpToPx(float dp) {
+            return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, getResources().getDisplayMetrics());
+        }
+    }
+
+    /**
+     * Sleek horizontal volume scrubber with smooth dragging and rounded pill track.
+     */
+    public static class VolumeScrubberView extends View {
+        public interface OnVolumeChangeListener {
+            void onVolumeChanged(int volume, boolean fromUser);
+        }
+
+        private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint progressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint thumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF trackRect = new RectF();
+
+        private int maxVolume = 15;
+        private int currentVolume = 7;
+        private boolean isDragging = false;
+        private OnVolumeChangeListener volumeChangeListener;
+
+        public VolumeScrubberView(Context context) {
+            super(context);
+            trackPaint.setColor(0x28FFFFFF);
+            trackPaint.setStyle(Paint.Style.FILL);
+
+            progressPaint.setColor(Color.parseColor("#26B8FF"));
+            progressPaint.setStyle(Paint.Style.FILL);
+
+            thumbPaint.setColor(Color.WHITE);
+            thumbPaint.setStyle(Paint.Style.FILL);
+        }
+
+        public void setOnVolumeChangeListener(OnVolumeChangeListener listener) {
+            this.volumeChangeListener = listener;
+        }
+
+        public void setMaxVolume(int max) {
+            this.maxVolume = Math.max(1, max);
+            invalidate();
+        }
+
+        public void setVolume(int volume) {
+            if (!isDragging) {
+                this.currentVolume = Math.max(0, Math.min(volume, maxVolume));
+                invalidate();
+            }
+        }
+
+        public int getVolume() {
+            return currentVolume;
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int width = getWidth();
+            int height = getHeight();
+            if (width <= 0 || height <= 0) return;
+
+            float centerY = height / 2f;
+            float trackHeight = dpToPx(4f);
+            float trackCorner = trackHeight / 2f;
+            float thumbRadius = isDragging ? dpToPx(6f) : dpToPx(4.5f);
+
+            float left = thumbRadius;
+            float right = width - thumbRadius;
+            float usableWidth = Math.max(1f, right - left);
+
+            // Inactive track
+            trackRect.set(left, centerY - (trackHeight / 2f), right, centerY + (trackHeight / 2f));
+            canvas.drawRoundRect(trackRect, trackCorner, trackCorner, trackPaint);
+
+            // Active progress
+            float fraction = (float) currentVolume / (float) maxVolume;
+            fraction = Math.max(0f, Math.min(1f, fraction));
+            float progressX = left + (usableWidth * fraction);
+
+            trackRect.set(left, centerY - (trackHeight / 2f), progressX, centerY + (trackHeight / 2f));
+            canvas.drawRoundRect(trackRect, trackCorner, trackCorner, progressPaint);
+
+            // Thumb
+            canvas.drawCircle(progressX, centerY, thumbRadius, thumbPaint);
+        }
+
+        @SuppressLint("ClickableViewAccessibility")
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            float thumbRadius = isDragging ? dpToPx(6f) : dpToPx(4.5f);
+            float left = thumbRadius;
+            float right = getWidth() - thumbRadius;
+            float usableWidth = Math.max(1f, right - left);
+
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    isDragging = true;
+                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                    updateFromTouch(event.getX(), left, usableWidth);
+                    invalidate();
+                    return true;
+
+                case MotionEvent.ACTION_MOVE:
+                    updateFromTouch(event.getX(), left, usableWidth);
+                    invalidate();
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    isDragging = false;
+                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+                    updateFromTouch(event.getX(), left, usableWidth);
+                    invalidate();
+                    return true;
+            }
+            return super.onTouchEvent(event);
+        }
+
+        private void updateFromTouch(float touchX, float left, float usableWidth) {
+            float fraction = (touchX - left) / usableWidth;
+            fraction = Math.max(0f, Math.min(1f, fraction));
+            int newVol = Math.round(fraction * maxVolume);
+            if (newVol != currentVolume) {
+                currentVolume = newVol;
+                if (volumeChangeListener != null) {
+                    volumeChangeListener.onVolumeChanged(currentVolume, true);
+                }
             }
         }
 

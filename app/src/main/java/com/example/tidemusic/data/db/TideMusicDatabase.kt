@@ -25,7 +25,7 @@ import androidx.room.TypeConverters
         BookmarkEntity::class,
         DownloadTaskEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 @TypeConverters(EqBandGainsConverter::class)

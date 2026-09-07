@@ -352,20 +352,64 @@ class PlaybackController constructor(
         }
     }
 
+    val isShuffleEnabled: Boolean
+        get() = player?.shuffleModeEnabled == true
+
     fun setShuffleMode(enabled: Boolean) {
         val p = player ?: return
         try {
             p.shuffleModeEnabled = enabled
-            if (enabled && p.mediaItemCount > 1) {
-                (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(
-                    androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
-                        p.mediaItemCount,
-                        secureRandom.nextLong()
-                    )
-                )
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error setting shuffle mode", e)
+        }
+    }
+
+    fun toggleShuffle(): Boolean {
+        val p = player ?: return false
+        val next = !p.shuffleModeEnabled
+        setShuffleMode(next)
+        return next
+    }
+
+    data class QueueSongItem(
+        val index: Int,
+        val id: Long,
+        val title: String,
+        val artist: String,
+        val filePath: String?,
+        val uri: String?,
+        val artworkUri: String?,
+        val isCurrent: Boolean,
+    )
+
+    fun getQueueItems(): List<QueueSongItem> {
+        val p = player ?: return emptyList()
+        val count = p.mediaItemCount
+        val currentIndex = p.currentMediaItemIndex
+        val list = ArrayList<QueueSongItem>(count)
+        for (i in 0 until count) {
+            val item = p.getMediaItemAt(i)
+            val id = item.mediaId.toLongOrNull() ?: -1L
+            val title = item.mediaMetadata.title?.toString() ?: "Unknown"
+            val artist = item.mediaMetadata.artist?.toString() ?: "Unknown"
+            val filePath = item.mediaMetadata.extras?.getString(EXTRA_FILE_PATH)
+            val uriStr = item.localConfiguration?.uri?.toString()
+            val artworkUri = item.mediaMetadata.artworkUri?.toString()
+            list.add(QueueSongItem(i, id, title, artist, filePath, uriStr, artworkUri, i == currentIndex))
+        }
+        return list
+    }
+
+    fun playQueueItem(index: Int) {
+        val p = player ?: return
+        try {
+            if (index in 0 until p.mediaItemCount) {
+                p.seekTo(index, 0L)
+                if (!p.isPlaying) p.play()
+                savePlaybackState()
             }
         } catch (e: Exception) {
-            Log.e("PlaybackController", "Error setting shuffle", e)
+            Log.e("PlaybackController", "Error playing queue item $index", e)
         }
     }
 

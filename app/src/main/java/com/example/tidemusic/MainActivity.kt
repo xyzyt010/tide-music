@@ -236,7 +236,11 @@ class MainActivity : ComponentActivity() {
         val repository = ServiceLocator.repository
         activityScope.launch {
             try {
-                repository.rescanFull()
+                if (force) {
+                    repository.rescanFull()
+                } else {
+                    repository.rescanIncremental()
+                }
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Library scan failed", e)
             }

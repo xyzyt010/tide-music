@@ -87,12 +87,14 @@ class LibraryRepository constructor(
                 excluded.none { ex -> track.filePath.startsWith(ex) }
             }
 
+            val existing = songDao.observeAllSongs().first().associateBy { it.id }
             val (msSongs, msAlbums, msArtists) = scanner.toEntities(filteredMs)
-            songDao.upsertAll(msSongs)
+            val preservedMsSongs = preserveSongMetadata(msSongs, existing)
+            songDao.upsertAll(preservedMsSongs)
             albumDao.upsertAllAlbums(msAlbums)
             albumDao.upsertAllArtists(msArtists)
 
-            val msFolderTree = treeBuilder.build(msSongs, includePrefixes)
+            val msFolderTree = treeBuilder.build(preservedMsSongs, includePrefixes)
             folderDao.deleteAll()
             folderDao.upsertAll(msFolderTree.folders)
             _scanProgress.value = ScanProgress(isScanning = true, stage = "Checking local files...", count = msSongs.size)
@@ -110,7 +112,8 @@ class LibraryRepository constructor(
                     excluded.none { ex -> track.filePath.startsWith(ex) }
                 }
                 val (rawSongs, rawAlbums, rawArtists) = scanner.toEntities(filteredRaw)
-                songDao.upsertAll(rawSongs)
+                val preservedRawSongs = preserveSongMetadata(rawSongs, existing)
+                songDao.upsertAll(preservedRawSongs)
                 albumDao.upsertAllAlbums(rawAlbums)
                 albumDao.upsertAllArtists(rawArtists)
 
@@ -145,7 +148,8 @@ class LibraryRepository constructor(
             }
             if (changed.isNotEmpty()) {
                 val (songs, albums, artists) = scanner.toEntities(changed)
-                songDao.upsertAll(songs)
+                val preservedSongs = preserveSongMetadata(songs, existing)
+                songDao.upsertAll(preservedSongs)
                 albumDao.upsertAllAlbums(albums)
                 albumDao.upsertAllArtists(artists)
             }
@@ -172,11 +176,32 @@ class LibraryRepository constructor(
     suspend fun rescanFolder(prefix: String) = withContext(Dispatchers.IO) {
         val scanned = scanner.scan().filter { it.filePath.startsWith(prefix) }
         if (scanned.isEmpty()) return@withContext
+        val existing = songDao.observeAllSongs().first().associateBy { it.id }
         val (songs, _, _) = scanner.toEntities(scanned)
-        songDao.upsertAll(songs)
+        val preservedSongs = preserveSongMetadata(songs, existing)
+        songDao.upsertAll(preservedSongs)
         val allSongs = songDao.observeAllSongs().first()
         val folderTree = treeBuilder.build(allSongs, null)
         folderDao.deleteAll(); folderDao.upsertAll(folderTree.folders)
+    }
+
+    private fun preserveSongMetadata(
+        scanned: List<SongEntity>,
+        existing: Map<Long, SongEntity>,
+    ): List<SongEntity> {
+        if (existing.isEmpty()) return scanned
+        return scanned.map { s ->
+            val ex = existing[s.id]
+            if (ex != null) {
+                s.copy(
+                    isFavorite = ex.isFavorite,
+                    playCount = ex.playCount,
+                    lastPlayedTimestamp = ex.lastPlayedTimestamp,
+                )
+            } else {
+                s
+            }
+        }
     }
 
     // ── Songs (six built-in playlist computations + favorites + search) ──────────────
@@ -190,8 +215,10 @@ class LibraryRepository constructor(
     fun observeRecentlyAdded(): Flow<List<Song>> =
         songDao.observeRecentlyAdded().map { rows -> rows.map { it.toDomain() } }
 
-    fun observeRecentlyPlayed(): Flow<List<Song>> =
-        songDao.observeRecentlyPlayed().map { rows -> rows.map { it.toDomain() } }
+    fun observeRecentlyPlayed(): Flow<List<Song>> {
+        val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24L * 60L * 60L * 1000L)
+        return songDao.observeRecentlyPlayed(thirtyDaysAgo).map { rows -> rows.map { it.toDomain() } }
+    }
 
     fun observeMostPlayed(): Flow<List<Song>> =
         songDao.observeMostPlayed().map { rows -> rows.map { it.toDomain() } }

@@ -18,12 +18,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -145,6 +149,21 @@ class PlaylistDetailViewModel(
             playback.setShuffleMode(true)
         }
     }
+
+    fun playCustomList(list: List<Song>, startIndex: Int = 0) {
+        if (list.isNotEmpty()) {
+            val safeIndex = startIndex.coerceIn(0, list.lastIndex)
+            playback.setQueue(list, startIndex = safeIndex)
+        }
+    }
+
+    fun shuffleCustomList(list: List<Song>) {
+        if (list.isNotEmpty()) {
+            val shuffled = list.shuffled(java.security.SecureRandom())
+            playback.setQueue(shuffled, startIndex = 0)
+            playback.setShuffleMode(true)
+        }
+    }
 }
 
 @Composable
@@ -173,6 +192,9 @@ fun PlaylistDetailScreen(
     )
 
     val isFileFormatsPlaylist = playlistId == com.example.tidemusic.domain.BuiltInPlaylistIds.FILE_FORMATS
+    var selectedFormat by remember { mutableStateOf("ALL") }
+    var showFormatDropdown by remember { mutableStateOf(false) }
+
     val formatOrder = remember { listOf("MP3", "FLAC", "M4A", "WAV", "OGG") }
     val grouped = remember(songs, isFileFormatsPlaylist) {
         if (!isFileFormatsPlaylist) emptyMap()
@@ -191,6 +213,14 @@ fun PlaylistDetailScreen(
     }
     val sortedFormatKeys = remember(grouped, formatOrder) {
         formatOrder.filter { grouped.containsKey(it) } + (grouped.keys - formatOrder.toSet()).sorted()
+    }
+
+    val effectiveSongs = remember(songs, isFileFormatsPlaylist, selectedFormat, grouped) {
+        if (!isFileFormatsPlaylist || selectedFormat == "ALL") {
+            songs
+        } else {
+            grouped[selectedFormat].orEmpty()
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -224,13 +254,13 @@ fun PlaylistDetailScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        val totalDurationMs = remember(songs) { songs.sumOf { it.durationMs } }
+                        val totalDurationMs = remember(effectiveSongs) { effectiveSongs.sumOf { it.durationMs } }
                         val isMostPlayed = isBuiltIn && title.equals("Most Played", ignoreCase = true)
-                        val totalPlays = remember(songs) { songs.sumOf { it.playCount } }
+                        val totalPlays = remember(effectiveSongs) { effectiveSongs.sumOf { it.playCount } }
                         val headerText = if (isMostPlayed) {
-                            "${songs.size} songs · $totalPlays total plays · ${formatPlaylistDuration(totalDurationMs)}"
+                            "${effectiveSongs.size} songs · $totalPlays total plays · ${formatPlaylistDuration(totalDurationMs)}"
                         } else {
-                            "${songs.size} songs · ${formatPlaylistDuration(totalDurationMs)}"
+                            "${effectiveSongs.size} songs · ${formatPlaylistDuration(totalDurationMs)}"
                         }
                         Text(
                             text = headerText,
@@ -241,13 +271,93 @@ fun PlaylistDetailScreen(
 
                         Spacer(Modifier.height(12.dp))
 
+                        if (isFileFormatsPlaylist) {
+                            Box(modifier = Modifier.padding(bottom = 12.dp)) {
+                                androidx.compose.material3.Surface(
+                                    onClick = { showFormatDropdown = true },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = TideColors.surfaceElevated,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, TideColors.outline),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.FilterList,
+                                            contentDescription = "Select Format",
+                                            tint = TideColors.accent,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        val label = if (selectedFormat == "ALL") "Format: All Formats (${songs.size})"
+                                        else "Format: $selectedFormat (${grouped[selectedFormat]?.size ?: 0})"
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                            color = TideColors.textPrimary
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Rounded.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = TideColors.textSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = showFormatDropdown,
+                                    onDismissRequest = { showFormatDropdown = false },
+                                    modifier = Modifier.background(TideColors.surfaceElevated)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "All Formats (${songs.size})",
+                                                color = if (selectedFormat == "ALL") TideColors.accent else TideColors.textPrimary,
+                                                fontWeight = if (selectedFormat == "ALL") androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            selectedFormat = "ALL"
+                                            showFormatDropdown = false
+                                        }
+                                    )
+                                    sortedFormatKeys.forEach { key ->
+                                        val count = grouped[key]?.size ?: 0
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = "$key ($count)",
+                                                    color = if (selectedFormat == key) TideColors.accent else TideColors.textPrimary,
+                                                    fontWeight = if (selectedFormat == key) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                selectedFormat = key
+                                                showFormatDropdown = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             androidx.compose.material3.Button(
-                                onClick = { viewModel.playAll() },
+                                onClick = {
+                                    if (isFileFormatsPlaylist && selectedFormat != "ALL") {
+                                        viewModel.playCustomList(effectiveSongs, 0)
+                                    } else {
+                                        viewModel.playAll()
+                                    }
+                                },
                                 modifier = Modifier.weight(1f),
                                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                                     containerColor = TideColors.accent,
@@ -269,7 +379,13 @@ fun PlaylistDetailScreen(
                             }
 
                             androidx.compose.material3.FilledTonalButton(
-                                onClick = { viewModel.shuffleAll() },
+                                onClick = {
+                                    if (isFileFormatsPlaylist && selectedFormat != "ALL") {
+                                        viewModel.shuffleCustomList(effectiveSongs)
+                                    } else {
+                                        viewModel.shuffleAll()
+                                    }
+                                },
                                 modifier = Modifier.weight(1f),
                                 colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
                                     containerColor = TideColors.surfaceElevated,
@@ -301,7 +417,8 @@ fun PlaylistDetailScreen(
                 }
 
                 if (isFileFormatsPlaylist) {
-                    sortedFormatKeys.forEach { formatKey ->
+                    val keysToShow = if (selectedFormat == "ALL") sortedFormatKeys else listOf(selectedFormat).filter { grouped.containsKey(it) }
+                    keysToShow.forEach { formatKey ->
                         val formatSongs = grouped[formatKey].orEmpty()
                         if (formatSongs.isNotEmpty()) {
                             val formatTitle = when (formatKey) {
@@ -355,7 +472,13 @@ fun PlaylistDetailScreen(
                             items(formatSongs, key = { it.id }) { song ->
                                 SongRow(
                                     song = song,
-                                    onClick = { viewModel.playAt(songs.indexOf(song)) },
+                                    onClick = {
+                                        if (selectedFormat != "ALL") {
+                                            viewModel.playCustomList(formatSongs, formatSongs.indexOf(song))
+                                        } else {
+                                            viewModel.playAt(songs.indexOf(song))
+                                        }
+                                    },
                                     multiSelect = multiSelect,
                                 )
                             }

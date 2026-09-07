@@ -63,8 +63,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -266,34 +268,46 @@ fun TideScrubSlider(
  * High-performance, hardware-accelerated 7-bar visualizer that dances continuously while isPlaying is true,
  * and rests at neat varied levels when paused. Never skips frames or freezes.
  */
+/**
+ * Silky-smooth, continuous 7-bar audio equalizer indicator.
+ * Driven by Choreographer frame callbacks (withFrameNanos) with harmonic, continuous sine waves.
+ * Never freezes, never jumps at cycle boundaries, and gracefully stays active during playback.
+ */
 @Composable
 fun PlayingEqualizerBars(
     modifier: Modifier = Modifier,
     color: Color = TideColors.accent,
     isPlaying: Boolean = true,
     barCount: Int = 7,
-    barWidth: Dp = 1.6.dp,
+    barWidth: Dp = 1.8.dp,
     barSpacing: Dp = 1.4.dp,
 ) {
     val totalWidth = (barWidth * barCount) + (barSpacing * (barCount - 1))
 
-    val infiniteTransition = rememberInfiniteTransition(label = "equalizerTransition")
-    val phase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(850, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "eqPhase"
-    )
+    val phase by produceState(initialValue = 0f, key1 = isPlaying) {
+        if (!isPlaying) {
+            value = 0f
+            return@produceState
+        }
+        val startTime = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { frameTime ->
+                val elapsedMs = (frameTime - startTime) / 1_000_000f
+                value = (elapsedMs % 1200f) / 1200f
+            }
+        }
+    }
 
     val restingHeights = remember {
-        floatArrayOf(0.35f, 0.70f, 0.45f, 0.90f, 0.55f, 0.80f, 0.40f)
+        floatArrayOf(0.35f, 0.65f, 0.45f, 0.85f, 0.50f, 0.75f, 0.40f)
+    }
+
+    val harmonics = remember {
+        intArrayOf(2, 3, 4, 3, 2, 4, 3)
     }
 
     Canvas(
-        modifier = modifier.size(width = totalWidth, height = 14.dp)
+        modifier = modifier.size(width = totalWidth, height = 15.dp)
     ) {
         val totalH = size.height
         val barWidthPx = barWidth.toPx()
@@ -301,12 +315,13 @@ fun PlayingEqualizerBars(
         val cornerRadius = CornerRadius(barWidthPx / 2f, barWidthPx / 2f)
 
         var currentX = 0f
+        val currentPhase = phase
         for (i in 0 until barCount) {
             val hFrac = if (isPlaying) {
-                val barFreq = 1f + ((i * 3) % 5) * 0.25f
+                val harmonic = harmonics[i % harmonics.size]
                 val offset = (i.toFloat() / barCount.toFloat()) * (2f * Math.PI.toFloat())
-                val sinVal = kotlin.math.sin((phase * 2f * Math.PI.toFloat() * barFreq) + offset)
-                0.20f + 0.75f * ((sinVal + 1f) / 2f)
+                val sinVal = kotlin.math.sin((currentPhase * 2f * Math.PI.toFloat() * harmonic.toFloat()) + offset)
+                0.22f + 0.72f * ((sinVal + 1f) / 2f)
             } else {
                 restingHeights[i % restingHeights.size]
             }
@@ -821,7 +836,7 @@ fun SongRow(
         val isPlaybackActive by ServiceLocator.playbackController.isPlayingState.collectAsState()
         val effectivePlayingId = activePlayingId ?: controller?.currentMediaItem?.mediaId?.toLongOrNull()
         val isCurrentlyPlaying = (effectivePlayingId != null && effectivePlayingId == song.id)
-        val isPlaybackActiveNow = isPlaybackActive || (controller?.isPlaying == true && isCurrentlyPlaying)
+        val isPlaybackActiveNow = isPlaybackActive || (controller?.isPlaying == true)
 
         ArtworkTile(song = song, size = 56.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {

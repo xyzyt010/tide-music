@@ -14,7 +14,14 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "songs",
-    indices = [Index("album"), Index("artist"), Index("folder_id"), Index("is_favorite")],
+    indices = [
+        Index("album"),
+        Index("artist"),
+        Index("folder_id"),
+        Index("is_favorite"),
+        Index("last_played_timestamp"),
+        Index("play_count"),
+    ],
 )
 data class SongEntity(
     @PrimaryKey val id: Long,

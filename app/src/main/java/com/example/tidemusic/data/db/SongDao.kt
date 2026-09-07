@@ -28,8 +28,8 @@ interface SongDao {
     @Query("SELECT * FROM songs ORDER BY date_added DESC, date_modified DESC")
     fun observeRecentlyAdded(): Flow<List<SongEntity>>
 
-    @Query("SELECT * FROM songs WHERE last_played_timestamp IS NOT NULL AND last_played_timestamp > 0 ORDER BY last_played_timestamp DESC")
-    fun observeRecentlyPlayed(): Flow<List<SongEntity>>
+    @Query("SELECT * FROM songs WHERE last_played_timestamp IS NOT NULL AND last_played_timestamp >= :minTimestamp ORDER BY last_played_timestamp DESC")
+    fun observeRecentlyPlayed(minTimestamp: Long): Flow<List<SongEntity>>
 
     @Query("SELECT * FROM songs WHERE play_count > 0 ORDER BY play_count DESC, last_played_timestamp DESC")
     fun observeMostPlayed(): Flow<List<SongEntity>>

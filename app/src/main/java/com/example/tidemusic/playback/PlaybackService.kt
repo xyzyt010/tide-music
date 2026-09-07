@@ -69,6 +69,16 @@ class PlaybackService : MediaSessionService() {
                 .setSessionCommand(androidx.media3.session.SessionCommand("ACTION_TOGGLE_FAVORITE", android.os.Bundle.EMPTY))
                 .build()
 
+        fun buildShuffleCommandButton(shuffleOn: Boolean): androidx.media3.session.CommandButton =
+            androidx.media3.session.CommandButton.Builder()
+                .setDisplayName(if (shuffleOn) "Shuffle On" else "Shuffle Off")
+                .setIconResId(
+                    if (shuffleOn) com.example.tidemusic.R.drawable.ic_notif_shuffle_on
+                    else com.example.tidemusic.R.drawable.ic_notif_shuffle_off
+                )
+                .setSessionCommand(androidx.media3.session.SessionCommand("ACTION_TOGGLE_SHUFFLE", android.os.Bundle.EMPTY))
+                .build()
+
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
@@ -100,12 +110,22 @@ class PlaybackService : MediaSessionService() {
                                     mediaSession?.setCustomLayout(
                                         com.google.common.collect.ImmutableList.of(
                                             buildFavoriteCommandButton(fav),
+                                            buildShuffleCommandButton(exo.shuffleModeEnabled),
                                             closeCommandButton
                                         )
                                     )
                                 }
                             }
                         }
+                    }
+                    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                        mediaSession?.setCustomLayout(
+                            com.google.common.collect.ImmutableList.of(
+                                buildFavoriteCommandButton(isCurrentSongFavorite),
+                                buildShuffleCommandButton(shuffleModeEnabled),
+                                closeCommandButton
+                            )
+                        )
                     }
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
@@ -134,6 +154,7 @@ class PlaybackService : MediaSessionService() {
             )
             .setCustomLayout(com.google.common.collect.ImmutableList.of(
                 buildFavoriteCommandButton(false),
+                buildShuffleCommandButton(player!!.shuffleModeEnabled),
                 closeCommandButton
             ))
             .setCallback(object : MediaSession.Callback {
@@ -145,6 +166,7 @@ class PlaybackService : MediaSessionService() {
                     val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
                     availableSessionCommands.add(androidx.media3.session.SessionCommand("ACTION_CLOSE", android.os.Bundle.EMPTY))
                     availableSessionCommands.add(androidx.media3.session.SessionCommand("ACTION_TOGGLE_FAVORITE", android.os.Bundle.EMPTY))
+                    availableSessionCommands.add(androidx.media3.session.SessionCommand("ACTION_TOGGLE_SHUFFLE", android.os.Bundle.EMPTY))
                     return MediaSession.ConnectionResult.accept(
                         availableSessionCommands.build(),
                         connectionResult.availablePlayerCommands
@@ -180,6 +202,7 @@ class PlaybackService : MediaSessionService() {
                                         mediaSession?.setCustomLayout(
                                             com.google.common.collect.ImmutableList.of(
                                                 buildFavoriteCommandButton(nextFav),
+                                                buildShuffleCommandButton(player?.shuffleModeEnabled == true),
                                                 closeCommandButton
                                             )
                                         )
@@ -192,13 +215,29 @@ class PlaybackService : MediaSessionService() {
                         return com.google.common.util.concurrent.Futures.immediateFuture(
                             androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS)
                         )
+                    } else if (customCommand.customAction == "ACTION_TOGGLE_SHUFFLE") {
+                        val p = player
+                        if (p != null) {
+                            val nextShuffle = !p.shuffleModeEnabled
+                            playbackController.setShuffleMode(nextShuffle)
+                            mediaSession?.setCustomLayout(
+                                com.google.common.collect.ImmutableList.of(
+                                    buildFavoriteCommandButton(isCurrentSongFavorite),
+                                    buildShuffleCommandButton(nextShuffle),
+                                    closeCommandButton
+                                )
+                            )
+                        }
+                        return com.google.common.util.concurrent.Futures.immediateFuture(
+                            androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS)
+                        )
                     }
                     return super.onCustomCommand(session, controller, customCommand, args)
                 }
             })
             .build()
 
-        // 4 prominent buttons: Favorite, Previous, Play/Pause, Next
+        // 5 prominent buttons: Favorite, Previous, Play/Pause, Next, Shuffle
         setMediaNotificationProvider(
             object : androidx.media3.session.DefaultMediaNotificationProvider(this@PlaybackService) {
                 override fun getMediaButtons(
@@ -252,8 +291,12 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
 
+                    // 5. Shuffle / Straight button
+                    buttons.add(buildShuffleCommandButton(session.player.shuffleModeEnabled))
+
                     for (custom in customLayout) {
                         if (custom.sessionCommand?.customAction != "ACTION_TOGGLE_FAVORITE" &&
+                            custom.sessionCommand?.customAction != "ACTION_TOGGLE_SHUFFLE" &&
                             buttons.none { it.sessionCommand?.customAction == custom.sessionCommand?.customAction }) {
                             buttons.add(custom)
                         }
