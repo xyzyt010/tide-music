@@ -217,80 +217,24 @@ class PlaybackService : MediaSessionService() {
             })
             .build()
 
-        // 5 prominent buttons: Favorite, Previous, Play/Pause, Next, Shuffle
-        val notificationProvider = object : androidx.media3.session.DefaultMediaNotificationProvider(
-            this@PlaybackService,
-            { 1001 },
-            "tide_playback_channel",
-            com.example.tidemusic.R.string.media_notification_channel,
-        ) {
-                override fun getMediaButtons(
-                    session: MediaSession,
-                    playerCommands: Player.Commands,
-                    customLayout: com.google.common.collect.ImmutableList<androidx.media3.session.CommandButton>,
-                    showPauseButton: Boolean,
-                ): com.google.common.collect.ImmutableList<androidx.media3.session.CommandButton> {
-                    val buttons = ArrayList<androidx.media3.session.CommandButton>()
-
-                    // 1. Favorite button
-                    buttons.add(buildFavoriteCommandButton(isCurrentSongFavorite))
-
-                    // 2. Previous button
-                    if (playerCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) ||
-                        playerCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS)
-                    ) {
-                        buttons.add(
-                            androidx.media3.session.CommandButton.Builder()
-                                .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                                .setIconResId(com.example.tidemusic.R.drawable.ic_notif_prev)
-                                .setDisplayName("Previous")
-                                .build(),
-                        )
-                    }
-
-                    // 3. Play / Pause button
-                    if (playerCommands.contains(Player.COMMAND_PLAY_PAUSE)) {
-                        buttons.add(
-                            androidx.media3.session.CommandButton.Builder()
-                                .setPlayerCommand(Player.COMMAND_PLAY_PAUSE)
-                                .setIconResId(
-                                    if (showPauseButton) com.example.tidemusic.R.drawable.ic_notif_pause
-                                    else com.example.tidemusic.R.drawable.ic_notif_play,
-                                )
-                                .setDisplayName(if (showPauseButton) "Pause" else "Play")
-                                .build(),
-                        )
-                    }
-
-                    // 4. Next button
-                    if (playerCommands.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) ||
-                        playerCommands.contains(Player.COMMAND_SEEK_TO_NEXT)
-                    ) {
-                        buttons.add(
-                            androidx.media3.session.CommandButton.Builder()
-                                .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                                .setIconResId(com.example.tidemusic.R.drawable.ic_notif_next)
-                                .setDisplayName("Next")
-                                .build(),
-                        )
-                    }
-
-                    // 5. Shuffle / Straight button
-                    buttons.add(buildShuffleCommandButton(session.player.shuffleModeEnabled))
-
-                    for (custom in customLayout) {
-                        if (custom.sessionCommand?.customAction != "ACTION_TOGGLE_FAVORITE" &&
-                            custom.sessionCommand?.customAction != "ACTION_TOGGLE_SHUFFLE" &&
-                            buttons.none { it.sessionCommand?.customAction == custom.sessionCommand?.customAction }) {
-                            buttons.add(custom)
-                        }
-                    }
-                    if (buttons.none { it.sessionCommand?.customAction == "ACTION_CLOSE" }) {
-                        buttons.add(closeCommandButton)
-                    }
-                    return com.google.common.collect.ImmutableList.copyOf(buttons)
-                }
+        // Explicitly create playback notification channel for Android O+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            val channel = android.app.NotificationChannel(
+                androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID,
+                getString(com.example.tidemusic.R.string.media_notification_channel),
+                android.app.NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Music playback controls"
+                setShowBadge(false)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
+            nm?.createNotificationChannel(channel)
+        }
+
+        val notificationProvider = androidx.media3.session.DefaultMediaNotificationProvider.Builder(this@PlaybackService)
+            .setChannelName(com.example.tidemusic.R.string.media_notification_channel)
+            .build()
         notificationProvider.setSmallIcon(com.example.tidemusic.R.drawable.ic_music_note)
         setMediaNotificationProvider(notificationProvider)
     }

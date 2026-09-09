@@ -135,6 +135,57 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
 
+            var hasNotifPerm by remember {
+                mutableStateOf(
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        androidx.core.content.ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.POST_NOTIFICATIONS
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    } else true
+                )
+            }
+            SettingsRow(
+                icon = Icons.Rounded.MusicNote,
+                title = "Status Bar Capsule & Media Controls",
+                subtitle = if (hasNotifPerm) {
+                    "Active — system capsule and lock screen controls show during playback"
+                } else {
+                    "Permission needed — tap to allow notifications so the pill appears"
+                },
+                onClick = {
+                    if (!hasNotifPerm) {
+                        try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            try {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
+                    } else {
+                        try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                },
+                trailing = {
+                    Text(
+                        if (hasNotifPerm) "Active" else "Enable",
+                        color = if (hasNotifPerm) TideColors.accent else TideColors.textSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                },
+            )
+
             // ── Library ──────────────────────────────────
             Text(
                 "Library",

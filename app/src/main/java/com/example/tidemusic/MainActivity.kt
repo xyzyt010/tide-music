@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
         // Initialize app-wide playback manager (Option A)
         MusicManager.get(this)
+        requestNotificationPermissionIfNeeded()
 
         // lock the player deep-link intent: open the Player screen if the system routed us here.
         val initialDeepLink = intent?.dataString
@@ -125,9 +126,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        requestNotificationPermissionIfNeeded()
         if (hasAllPermissions()) {
             triggerLibraryScan()
             com.example.tidemusic.util.BatteryOptimizationHelper.promptIfNeeded(this)
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissionsIfNeeded()
         }
     }
 
@@ -141,7 +151,10 @@ class MainActivity : ComponentActivity() {
         val hasAllFiles = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.os.Environment.isExternalStorageManager()
         } else true
-        return hasAudio && hasAllFiles
+        val hasNotif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
+        return hasAudio && hasAllFiles && hasNotif
     }
 
     private fun checkManageAllFilesPermission() {
