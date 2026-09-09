@@ -162,6 +162,36 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
 
+            // ── Background Execution ─────────────────────
+            Text(
+                "Background Playback",
+                style = MaterialTheme.typography.titleSmall,
+                color = TideColors.textSecondary,
+                modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+            )
+            val isBatteryUnrestricted = remember(context) {
+                com.example.tidemusic.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
+            }
+            SettingsRow(
+                icon = Icons.Rounded.CheckCircle,
+                title = "Run Unrestricted in Background",
+                subtitle = if (isBatteryUnrestricted) {
+                    "Allowed — music won't stop when app is closed from recents"
+                } else {
+                    "Restricted by Android — tap to allow uninterrupted playback"
+                },
+                onClick = {
+                    com.example.tidemusic.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                },
+                trailing = {
+                    Text(
+                        if (isBatteryUnrestricted) "Allowed" else "Fix",
+                        color = if (isBatteryUnrestricted) TideColors.accent else TideColors.textSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                },
+            )
+
             // ── Library ──────────────────────────────────
             Text(
                 "Library",

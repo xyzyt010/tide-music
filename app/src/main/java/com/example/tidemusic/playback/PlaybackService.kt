@@ -82,6 +82,7 @@ class PlaybackService : MediaSessionService() {
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
             .build().also { exo ->
                 playbackController.attachPlayer(exo)
                 exo.addListener(object : Player.Listener {
@@ -377,8 +378,15 @@ class PlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         saveState()
-        // Never stop playback when app is swiped away from recent apps.
-        // Playback only stops when user taps the Close (X) button in the notification drawer.
+        val p = player
+        // If music is actively playing, keep running in the foreground seamlessly even if swiped from recents!
+        // If paused, ended, or empty, release foreground and stop service cleanly so it doesn't drain battery or memory.
+        if (p == null || !p.playWhenReady || !p.isPlaying || p.mediaItemCount == 0) {
+            FloatingPillService.hide(this)
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {

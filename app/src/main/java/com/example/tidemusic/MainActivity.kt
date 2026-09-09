@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
         FloatingPillService.setAppInForeground(true)
         if (hasAllPermissions()) {
             triggerLibraryScan()
+            com.example.tidemusic.util.BatteryOptimizationHelper.promptIfNeeded(this)
         }
     }
 
