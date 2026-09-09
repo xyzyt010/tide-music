@@ -27,7 +27,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.example.tidemusic.di.ServiceLocator
 import com.example.tidemusic.playback.ConnectionHolder
-import com.example.tidemusic.playback.FloatingPillService
+import com.example.tidemusic.playback.MusicManager
 import com.example.tidemusic.theme.TideMusicTheme
 import com.example.tidemusic.ui.AppShell
 import com.example.tidemusic.ui.LocalMediaController
@@ -53,9 +53,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Enforce IPv4-only networking for yt-dlp and all auxiliary connections (spec Section 6.6).
-        System.setProperty("java.net.preferIPv4Stack", "true")
-        com.example.tidemusic.playback.FloatingPillService.resetSessionDismissed()
+        // Initialize app-wide playback manager (Option A)
+        MusicManager.get(this)
 
         // lock the player deep-link intent: open the Player screen if the system routed us here.
         val initialDeepLink = intent?.dataString
@@ -124,39 +123,8 @@ class MainActivity : ComponentActivity() {
         triggerLibraryScan()
     }
 
-    override fun onStart() {
-        super.onStart()
-        FloatingPillService.setAppInForeground(true)
-        // Prompt for overlay permission if not yet granted (needed for floating pill)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
-            val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-            val hasAsked = prefs.getBoolean("overlay_permission_asked", false)
-            if (!hasAsked) {
-                prefs.edit().putBoolean("overlay_permission_asked", true).apply()
-                android.app.AlertDialog.Builder(this)
-                    .setTitle("Enable Floating Music Capsule")
-                    .setMessage("Tide Music can show a small floating capsule at the top of your screen while music plays. This requires the 'Display over other apps' permission.")
-                    .setPositiveButton("Enable") { _, _ ->
-                        val intent = android.content.Intent(
-                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            android.net.Uri.parse("package:$packageName")
-                        )
-                        startActivity(intent)
-                    }
-                    .setNegativeButton("Not now", null)
-                    .show()
-            }
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        FloatingPillService.setAppInForeground(false)
-    }
-
     override fun onResume() {
         super.onResume()
-        FloatingPillService.setAppInForeground(true)
         if (hasAllPermissions()) {
             triggerLibraryScan()
             com.example.tidemusic.util.BatteryOptimizationHelper.promptIfNeeded(this)

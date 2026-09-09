@@ -86,23 +86,8 @@ class PlaybackService : MediaSessionService() {
             .build().also { exo ->
                 playbackController.attachPlayer(exo)
                 exo.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        val item = exo.currentMediaItem
-                        val filePath = item?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH)
-                        val uriStr = item?.localConfiguration?.uri?.toString()
-                        val title = item?.mediaMetadata?.title?.toString()
-                        val artist = item?.mediaMetadata?.artist?.toString()
-                        val mediaId = item?.mediaId?.toLongOrNull() ?: -1L
-                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, title, artist, mediaId, isPlaying)
-                    }
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        val filePath = mediaItem?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH)
-                        val uriStr = mediaItem?.localConfiguration?.uri?.toString()
-                        val title = mediaItem?.mediaMetadata?.title?.toString()
-                        val artist = mediaItem?.mediaMetadata?.artist?.toString()
                         val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: -1L
-                        FloatingPillService.showOrUpdate(this@PlaybackService, filePath, uriStr, title, artist, mediaId, exo.isPlaying)
-
                         if (mediaId > 0L) {
                             GlobalScope.launch(Dispatchers.IO) {
                                 val fav = ServiceLocator.repository.getSong(mediaId)?.isFavorite == true
@@ -127,11 +112,6 @@ class PlaybackService : MediaSessionService() {
                                 closeCommandButton
                             )
                         )
-                    }
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
-                            FloatingPillService.hide(this@PlaybackService)
-                        }
                     }
                 })
             }
@@ -182,7 +162,6 @@ class PlaybackService : MediaSessionService() {
                 ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {
                     if (customCommand.customAction == "ACTION_CLOSE") {
                         saveState()
-                        FloatingPillService.hide(this@PlaybackService)
                         player?.stop()
                         player?.clearMediaItems()
                         @Suppress("DEPRECATION")
@@ -239,8 +218,12 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         // 5 prominent buttons: Favorite, Previous, Play/Pause, Next, Shuffle
-        setMediaNotificationProvider(
-            object : androidx.media3.session.DefaultMediaNotificationProvider(this@PlaybackService) {
+        val notificationProvider = object : androidx.media3.session.DefaultMediaNotificationProvider(
+            this@PlaybackService,
+            { 1001 },
+            "tide_playback_channel",
+            com.example.tidemusic.R.string.media_notification_channel,
+        ) {
                 override fun getMediaButtons(
                     session: MediaSession,
                     playerCommands: Player.Commands,
@@ -307,8 +290,9 @@ class PlaybackService : MediaSessionService() {
                     }
                     return com.google.common.collect.ImmutableList.copyOf(buttons)
                 }
-            },
-        )
+            }
+        notificationProvider.setSmallIcon(com.example.tidemusic.R.drawable.ic_music_note)
+        setMediaNotificationProvider(notificationProvider)
     }
     
     @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
@@ -361,7 +345,6 @@ class PlaybackService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "ACTION_CLOSE") {
             saveState()
-            FloatingPillService.hide(this)
             player?.stop()
             player?.clearMediaItems()
             @Suppress("DEPRECATION")
@@ -382,7 +365,6 @@ class PlaybackService : MediaSessionService() {
         // If music is actively playing, keep running in the foreground seamlessly even if swiped from recents!
         // If paused, ended, or empty, release foreground and stop service cleanly so it doesn't drain battery or memory.
         if (p == null || !p.playWhenReady || !p.isPlaying || p.mediaItemCount == 0) {
-            FloatingPillService.hide(this)
             @Suppress("DEPRECATION")
             stopForeground(true)
             stopSelf()
@@ -391,7 +373,6 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         saveState()
-        FloatingPillService.hide(this)
         mediaSession?.run {
             player.release()
             release()

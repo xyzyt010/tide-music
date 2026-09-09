@@ -44,15 +44,6 @@ class SettingsManager(context: Context) {
         _isMiniPlayerEnabled.value = enabled
     }
 
-    /** Controls whether the Dynamic Island floating pill widget is enabled when outside the app. */
-    private val _isFloatingPillEnabled = MutableStateFlow(prefs.getBoolean("floating_pill_enabled", true))
-    val isFloatingPillEnabled: StateFlow<Boolean> = _isFloatingPillEnabled
-
-    fun setFloatingPillEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("floating_pill_enabled", enabled).apply()
-        _isFloatingPillEnabled.value = enabled
-    }
-
     /**
      * Retrieves saved sort criteria for a given playlist (or default screen key).
      * Defaults to A-Z (TITLE_ASC) for all playlists as requested by user.

@@ -61,4 +61,5 @@
 
     <!-- Notification channels -->
     <string name="notification_channel_playback">Playback</string>
+    <string name="media_notification_channel">Playback</string>
 </resources>
