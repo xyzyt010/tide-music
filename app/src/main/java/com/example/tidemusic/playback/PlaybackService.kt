@@ -113,6 +113,11 @@ class PlaybackService : MediaSessionService() {
                             )
                         )
                     }
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying) {
+                            AquaDynamicsService.startIfEnabled(this@PlaybackService)
+                        }
+                    }
                 })
             }
             
@@ -161,6 +166,7 @@ class PlaybackService : MediaSessionService() {
                     args: android.os.Bundle
                 ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {
                     if (customCommand.customAction == "ACTION_CLOSE") {
+                        AquaDynamicsService.stop(this@PlaybackService)
                         saveState()
                         player?.stop()
                         player?.clearMediaItems()
@@ -288,6 +294,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "ACTION_CLOSE") {
+            AquaDynamicsService.stop(this)
             saveState()
             player?.stop()
             player?.clearMediaItems()
@@ -309,6 +316,7 @@ class PlaybackService : MediaSessionService() {
         // If music is actively playing, keep running in the foreground seamlessly even if swiped from recents!
         // If paused, ended, or empty, release foreground and stop service cleanly so it doesn't drain battery or memory.
         if (p == null || !p.playWhenReady || !p.isPlaying || p.mediaItemCount == 0) {
+            AquaDynamicsService.stop(this)
             @Suppress("DEPRECATION")
             stopForeground(true)
             stopSelf()
@@ -316,6 +324,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        AquaDynamicsService.stop(this)
         saveState()
         mediaSession?.run {
             player.release()

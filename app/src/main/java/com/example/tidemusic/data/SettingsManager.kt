@@ -44,6 +44,15 @@ class SettingsManager(context: Context) {
         _isMiniPlayerEnabled.value = enabled
     }
 
+    /** Controls whether the Aqua Dynamics Punch-Hole Status Bar Capsule is active over other apps. */
+    private val _isAquaDynamicsPillEnabled = MutableStateFlow(prefs.getBoolean("aqua_dynamics_pill_enabled", true))
+    val isAquaDynamicsPillEnabled: StateFlow<Boolean> = _isAquaDynamicsPillEnabled
+
+    fun setAquaDynamicsPillEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("aqua_dynamics_pill_enabled", enabled).apply()
+        _isAquaDynamicsPillEnabled.value = enabled
+    }
+
     /**
      * Retrieves saved sort criteria for a given playlist (or default screen key).
      * Defaults to A-Z (TITLE_ASC) for all playlists as requested by user.

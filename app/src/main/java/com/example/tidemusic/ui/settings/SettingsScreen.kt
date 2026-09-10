@@ -147,41 +147,77 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             SettingsRow(
                 icon = Icons.Rounded.MusicNote,
-                title = "Status Bar Capsule & Media Controls",
+                title = "System Media Controls (Engine 1)",
                 subtitle = if (hasNotifPerm) {
-                    "Active — system capsule and lock screen controls show during playback"
+                    "Active — standard system controls, lock screen, and ColorOS Live Alerts"
                 } else {
-                    "Permission needed — tap to allow notifications so the pill appears"
+                    "Permission needed — tap to allow notifications"
                 },
                 onClick = {
-                    if (!hasNotifPerm) {
-                        try {
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            try {
-                                val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                    data = android.net.Uri.parse("package:${context.packageName}")
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
+                    try {
+                        val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
                         }
-                    } else {
-                        try {
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {}
-                    }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
                 },
                 trailing = {
                     Text(
                         if (hasNotifPerm) "Active" else "Enable",
                         color = if (hasNotifPerm) TideColors.accent else TideColors.textSecondary,
                         style = MaterialTheme.typography.labelMedium,
+                    )
+                },
+            )
+
+            // ── Aqua Dynamics Capsule (Engine 2) ─────────
+            val aquaPillEnabled by ServiceLocator.settingsManager.isAquaDynamicsPillEnabled.collectAsState()
+            val hasOverlayPerm = remember(context) {
+                android.provider.Settings.canDrawOverlays(context)
+            }
+            SettingsRow(
+                icon = Icons.Rounded.MusicNote,
+                title = "Aqua Dynamics Punch-Hole Capsule",
+                subtitle = if (!hasOverlayPerm) {
+                    "Permission required — tap to allow 'Display over other apps' for camera punch-hole capsule"
+                } else if (aquaPillEnabled) {
+                    "Active — 4-bar animated equalizer & album art capsule at camera punch hole"
+                } else {
+                    "Disabled — tap switch to enable punch-hole capsule over apps"
+                },
+                onClick = {
+                    if (!hasOverlayPerm) {
+                        try {
+                            val intent = android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                },
+                trailing = {
+                    Switch(
+                        checked = aquaPillEnabled && hasOverlayPerm,
+                        onCheckedChange = { checked ->
+                            if (!hasOverlayPerm) {
+                                try {
+                                    val intent = android.content.Intent(
+                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        android.net.Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            } else {
+                                ServiceLocator.settingsManager.setAquaDynamicsPillEnabled(checked)
+                                if (checked) {
+                                    com.example.tidemusic.playback.AquaDynamicsService.startIfEnabled(context)
+                                } else {
+                                    com.example.tidemusic.playback.AquaDynamicsService.stop(context)
+                                }
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
                     )
                 },
             )
@@ -216,7 +252,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             SettingsRow(
                 icon = Icons.Rounded.Info,
                 title = "Tide Music",
-                subtitle = "Version 1.4.6 · Private, offline-first music player",
+                subtitle = "Version 1.6.2 · Private, offline-first music player",
             )
             SettingsRow(
                 icon = Icons.Rounded.CheckCircle,
