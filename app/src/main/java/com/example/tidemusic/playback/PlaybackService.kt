@@ -223,22 +223,25 @@ class PlaybackService : MediaSessionService() {
             })
             .build()
 
-        // Explicitly create playback notification channel for Android O+
+        // High-importance notification channel required for ColorOS / Realme UI Fluid Cloud / Live Alerts
+        val liveChannelId = "tide_fluid_dynamics_live"
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val nm = getSystemService(android.app.NotificationManager::class.java)
             val channel = android.app.NotificationChannel(
-                androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID,
+                liveChannelId,
                 getString(com.example.tidemusic.R.string.media_notification_channel),
-                android.app.NotificationManager.IMPORTANCE_LOW
+                android.app.NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Music playback controls"
-                setShowBadge(false)
+                description = "Music playback live alerts & status bar capsule"
+                setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                setSound(null, null) // Silent: no chime on track change, but grants Live Alert / capsule privileges
             }
             nm?.createNotificationChannel(channel)
         }
 
         val notificationProvider = androidx.media3.session.DefaultMediaNotificationProvider.Builder(this@PlaybackService)
+            .setChannelId(liveChannelId)
             .setChannelName(com.example.tidemusic.R.string.media_notification_channel)
             .build()
         notificationProvider.setSmallIcon(com.example.tidemusic.R.drawable.ic_music_note)

@@ -141,7 +141,23 @@ class AquaDynamicsService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        showCapsule()
+        val controller = ServiceLocator.playbackController
+        val id = controller.currentMediaId ?: controller.currentPlayingSongId.value
+        if (id != null) {
+            serviceScope.launch {
+                val song = ServiceLocator.repository.getSong(id)
+                withContext(Dispatchers.Main) {
+                    currentSong = song
+                    updateSongMetadata(song)
+                    showCapsule()
+                    if (controller.isPlaying) {
+                        capsuleEqualizer?.startAnimation()
+                    }
+                }
+            }
+        } else {
+            showCapsule()
+        }
         return START_STICKY
     }
 
@@ -431,6 +447,13 @@ class AquaDynamicsService : Service() {
         rootContainer?.addView(expandedCardView)
     }
 
+    private fun getStatusBarTopOffset(): Int {
+        val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        val sbHeight = if (resId > 0) resources.getDimensionPixelSize(resId) else dp(36)
+        val diff = (sbHeight - dp(38)) / 2
+        return diff.coerceAtLeast(0)
+    }
+
     private fun getCollapsedLayoutParams(): WindowManager.LayoutParams {
         val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -445,7 +468,13 @@ class AquaDynamicsService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(2) // Hug the top status bar / camera punch hole
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+            y = getStatusBarTopOffset()
         }
     }
 
@@ -466,7 +495,13 @@ class AquaDynamicsService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(12)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+            y = dp(10)
         }
     }
 
@@ -557,14 +592,20 @@ class AquaDynamicsService : Service() {
         // 2. Observe Active Song
         serviceScope.launch {
             controller.currentPlayingSongId.collectLatest { songId ->
-                if (songId == null) {
-                    hideCapsule()
+                val activeId = songId ?: controller.currentMediaId
+                if (activeId == null) {
+                    if (!controller.isPlaying) {
+                        hideCapsule()
+                    }
                     return@collectLatest
                 }
-                val song = ServiceLocator.repository.getSong(songId)
+                val song = ServiceLocator.repository.getSong(activeId)
                 withContext(Dispatchers.Main) {
                     currentSong = song
                     updateSongMetadata(song)
+                    if (controller.isPlaying) {
+                        showCapsule()
+                    }
                 }
             }
         }

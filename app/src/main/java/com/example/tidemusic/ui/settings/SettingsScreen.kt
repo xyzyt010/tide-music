@@ -252,7 +252,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             SettingsRow(
                 icon = Icons.Rounded.Info,
                 title = "Tide Music",
-                subtitle = "Version 1.6.2 · Private, offline-first music player",
+                subtitle = "Version 1.6.3 · Private, offline-first music player",
             )
             SettingsRow(
                 icon = Icons.Rounded.CheckCircle,
