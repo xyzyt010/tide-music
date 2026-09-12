@@ -130,7 +130,6 @@ class MainActivity : ComponentActivity() {
         if (hasAllPermissions()) {
             triggerLibraryScan()
             com.example.tidemusic.util.BatteryOptimizationHelper.promptIfNeeded(this)
-            com.example.tidemusic.util.AquaDynamicsHelper.promptIfNeeded(this)
         }
     }
 

@@ -22,8 +22,6 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- ColorOS / Realme UI custom notification privilege -->
     <uses-permission android:name="com.coloros.notification.permission.SHOW_CUSTOM_NOTIFICATION" />
-    <!-- Aqua Dynamics punch-hole status bar capsule overlay -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".TideMusicApp"
@@ -60,10 +58,6 @@
             </intent-filter>
         </service>
 
-        <!-- Aqua Dynamics Engine 2: Punch-hole status bar capsule -->
-        <service
-            android:name="com.example.tidemusic.playback.AquaDynamicsService"
-            android:exported="false" />
 
         <!-- Foreground service for reliable background audio downloading -->
         <service

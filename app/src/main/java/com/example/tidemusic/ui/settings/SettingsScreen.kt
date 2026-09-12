@@ -170,54 +170,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
 
-            // ── Aqua Dynamics Capsule (Engine 2) ─────────
-            val aquaPillEnabled by ServiceLocator.settingsManager.isAquaDynamicsPillEnabled.collectAsState()
-            val hasOverlayPerm = remember(context) {
-                android.provider.Settings.canDrawOverlays(context)
-            }
+            // ── Native Aqua Dynamics / Fluid Cloud ─────
             SettingsRow(
                 icon = Icons.Rounded.MusicNote,
-                title = "Aqua Dynamics Punch-Hole Capsule",
-                subtitle = if (!hasOverlayPerm) {
-                    "Permission required — tap to allow 'Display over other apps' for camera punch-hole capsule"
-                } else if (aquaPillEnabled) {
-                    "Active — 4-bar animated equalizer & album art capsule at camera punch hole"
-                } else {
-                    "Disabled — tap switch to enable punch-hole capsule over apps"
-                },
-                onClick = {
-                    if (!hasOverlayPerm) {
-                        try {
-                            val intent = android.content.Intent(
-                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                android.net.Uri.parse("package:${context.packageName}")
-                            )
-                            context.startActivity(intent)
-                        } catch (_: Exception) {}
-                    }
-                },
+                title = "Aqua Dynamics & Fluid Cloud",
+                subtitle = "Native ColorOS / Realme UI status bar capsule & punch-hole pill — zero overlay permissions required",
+                onClick = {},
                 trailing = {
-                    Switch(
-                        checked = aquaPillEnabled && hasOverlayPerm,
-                        onCheckedChange = { checked ->
-                            if (!hasOverlayPerm) {
-                                try {
-                                    val intent = android.content.Intent(
-                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        android.net.Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            } else {
-                                ServiceLocator.settingsManager.setAquaDynamicsPillEnabled(checked)
-                                if (checked) {
-                                    com.example.tidemusic.playback.AquaDynamicsService.startIfEnabled(context)
-                                } else {
-                                    com.example.tidemusic.playback.AquaDynamicsService.stop(context)
-                                }
-                            }
-                        },
-                        colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
+                    Text(
+                        "Active",
+                        color = TideColors.accent,
+                        style = MaterialTheme.typography.labelMedium,
                     )
                 },
             )

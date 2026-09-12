@@ -7,6 +7,8 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import com.example.tidemusic.domain.LibraryRepository
 import com.example.tidemusic.domain.Song
+import com.example.tidemusic.util.AudioArtworkFetcher
+import com.example.tidemusic.util.PlaceholderArt
 import com.example.tidemusic.util.orUnknown
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -152,7 +154,11 @@ class PlaybackController constructor(
         )
         extras.putString(EXTRA_ARTWORK_URI, artUri.toString())
 
-        val metadata = MediaMetadata.Builder()
+        val artBytes: ByteArray? = try {
+            AudioArtworkFetcher.extractEmbeddedPicture(song.filePath, song.uri, context)
+        } catch (_: Exception) { null }
+
+        val metadataBuilder = MediaMetadata.Builder()
             .setTitle(song.title.ifBlank { "Unknown" })
             .setArtist(song.artist.orUnknown())
             .setAlbumTitle(song.album.orUnknown())
@@ -163,7 +169,19 @@ class PlaybackController constructor(
             .setIsPlayable(true)
             .setArtworkUri(artUri)
             .setExtras(extras)
-            .build()
+
+        if (artBytes != null && artBytes.size > 0) {
+            metadataBuilder.setArtworkData(artBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+        } else {
+            try {
+                val placeholderBmp = PlaceholderArt.bitmapFor(song.id)
+                val stream = java.io.ByteArrayOutputStream()
+                placeholderBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 95, stream)
+                metadataBuilder.setArtworkData(stream.toByteArray(), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            } catch (_: Exception) {}
+        }
+
+        val metadata = metadataBuilder.build()
         return MediaItem.Builder()
             .setMediaId(song.id.toString())
             .setUri(song.uri)

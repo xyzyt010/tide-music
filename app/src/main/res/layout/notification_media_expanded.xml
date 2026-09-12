@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/notif_root_expanded"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="#1C1E24">
+
+    <!-- Top Track Info Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- High-res Rounded Album Art -->
+        <ImageView
+            android:id="@+id/notif_art"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_music_note"
+            android:contentDescription="Album Art" />
+
+        <!-- Title & Artist Column -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="8dp">
+
+            <TextView
+                android:id="@+id/notif_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Tide Music"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/notif_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Ready to play"
+                android:textColor="#B3FFFFFF"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <!-- Close / Dismiss Button -->
+        <ImageView
+            android:id="@+id/notif_close"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:padding="5dp"
+            android:src="@drawable/ic_close_notification"
+            android:contentDescription="Close" />
+    </LinearLayout>
+
+    <!-- Large Playback Controls Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <!-- Favorite Button (40dp) -->
+        <ImageView
+            android:id="@+id/notif_fav"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_notif_favorite_border"
+            android:contentDescription="Favorite" />
+
+        <!-- Large Previous Button (48dp) -->
+        <ImageView
+            android:id="@+id/notif_prev"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="16dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_notif_prev"
+            android:contentDescription="Previous" />
+
+        <!-- Massive Circular Play/Pause Button (60dp) -->
+        <FrameLayout
+            android:id="@+id/notif_play_pause_container"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:background="@drawable/bg_circle_white">
+
+            <ImageView
+                android:id="@+id/notif_play_pause"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_pause_black"
+                android:contentDescription="Play/Pause" />
+        </FrameLayout>
+
+        <!-- Large Next Button (48dp) -->
+        <ImageView
+            android:id="@+id/notif_next"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="16dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_notif_next"
+            android:contentDescription="Next" />
+
+        <!-- Shuffle Button (40dp) -->
+        <ImageView
+            android:id="@+id/notif_shuffle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_notif_shuffle_off"
+            android:contentDescription="Shuffle" />
+    </LinearLayout>
+
+</LinearLayout>
