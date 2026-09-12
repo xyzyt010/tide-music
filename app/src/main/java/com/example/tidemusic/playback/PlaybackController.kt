@@ -154,11 +154,7 @@ class PlaybackController constructor(
         )
         extras.putString(EXTRA_ARTWORK_URI, artUri.toString())
 
-        val artBytes: ByteArray? = try {
-            AudioArtworkFetcher.extractEmbeddedPicture(song.filePath, song.uri, context)
-        } catch (_: Exception) { null }
-
-        val metadataBuilder = MediaMetadata.Builder()
+        val metadata = MediaMetadata.Builder()
             .setTitle(song.title.ifBlank { "Unknown" })
             .setArtist(song.artist.orUnknown())
             .setAlbumTitle(song.album.orUnknown())
@@ -169,19 +165,7 @@ class PlaybackController constructor(
             .setIsPlayable(true)
             .setArtworkUri(artUri)
             .setExtras(extras)
-
-        if (artBytes != null && artBytes.size > 0) {
-            metadataBuilder.setArtworkData(artBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-        } else {
-            try {
-                val placeholderBmp = PlaceholderArt.bitmapFor(song.id)
-                val stream = java.io.ByteArrayOutputStream()
-                placeholderBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 95, stream)
-                metadataBuilder.setArtworkData(stream.toByteArray(), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-            } catch (_: Exception) {}
-        }
-
-        val metadata = metadataBuilder.build()
+            .build()
         return MediaItem.Builder()
             .setMediaId(song.id.toString())
             .setUri(song.uri)
