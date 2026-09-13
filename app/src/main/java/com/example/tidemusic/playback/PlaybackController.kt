@@ -1,7 +1,10 @@
 package com.example.tidemusic.playback
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -93,7 +96,21 @@ class PlaybackController constructor(
         }
     }
 
+    fun ensureServiceStarted() {
+        try {
+            val intent = Intent(context, PlaybackService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(context, intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error starting PlaybackService", e)
+        }
+    }
+
     fun playPause() {
+        ensureServiceStarted()
         val p = player ?: return
         try {
             if (p.isPlaying) {
@@ -188,6 +205,7 @@ class PlaybackController constructor(
     }
 
     fun setQueue(songs: List<Song>, startIndex: Int = 0) {
+        ensureServiceStarted()
         val p = player ?: return
         try {
             if (songs.isEmpty()) {
@@ -197,6 +215,20 @@ class PlaybackController constructor(
             }
             val mediaItems = songs.map(::mediaItemFor)
             val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
+
+            // Asynchronously pre-decode artwork bitmap for the track about to play
+            val targetSong = songs.getOrNull(safeIndex)
+            if (targetSong != null) {
+                ioScope.launch {
+                    SongArtworkCache.getOrDecode(
+                        context,
+                        targetSong.id,
+                        targetSong.filePath,
+                        targetSong.uri
+                    )
+                }
+            }
+
             p.clearMediaItems()
             p.setMediaItems(mediaItems, safeIndex, 0L)
             if (p.shuffleModeEnabled && mediaItems.size > 1) {
@@ -255,6 +287,7 @@ class PlaybackController constructor(
     }
 
     fun togglePlayPause() {
+        ensureServiceStarted()
         val p = player ?: return
         try {
             if (p.isPlaying) {
@@ -275,6 +308,7 @@ class PlaybackController constructor(
     }
 
     fun next() {
+        ensureServiceStarted()
         val p = player ?: return
         try {
             if (p.mediaItemCount > 0) {
@@ -300,6 +334,7 @@ class PlaybackController constructor(
     }
 
     fun previous() {
+        ensureServiceStarted()
         val p = player ?: return
         try {
             if (p.mediaItemCount > 0) {

@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
                 // Connect to the MediaSessionService once for the app's lifetime.
                 DisposableEffect(Unit) {
                     ConnectionHolder.connect(context)
+                    ServiceLocator.playbackController.ensureServiceStarted()
                     onDispose { ConnectionHolder.disconnect() }
                 }
                 val controller by ConnectionHolder.controller.collectAsState()

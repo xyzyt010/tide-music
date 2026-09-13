@@ -58,8 +58,16 @@ class TideArtworkBitmapLoader(
      * it yields the song's deterministic placeholder gradient, which guarantees the media
      * notification / lock screen always receives fresh per-song artwork.
      */
-    override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> =
-        Futures.submit(Callable { resolveBitmap(uri) }, executor)
+    override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> {
+        if (uri.scheme == ArtworkUri.SCHEME) {
+            val songId = uri.lastPathSegment?.toLongOrNull() ?: 0L
+            val cached = SongArtworkCache.get(songId)
+            if (cached != null && !cached.isRecycled) {
+                return Futures.immediateFuture(cached)
+            }
+        }
+        return Futures.submit(Callable { resolveBitmap(uri) }, executor)
+    }
 
     private fun resolveBitmap(uri: Uri): Bitmap {
         if (uri.scheme != ArtworkUri.SCHEME) {
@@ -71,20 +79,7 @@ class TideArtworkBitmapLoader(
         val filePath = uri.getQueryParameter(ArtworkUri.QP_PATH) ?: ""
         val sourceUri = uri.getQueryParameter(ArtworkUri.QP_SOURCE) ?: ""
 
-        // 1. Real embedded / associated artwork for this exact song.
-        val bytes = AudioArtworkFetcher.extractEmbeddedPicture(filePath, sourceUri, context)
-        if (bytes != null) {
-            try {
-                val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (raw != null) {
-                    return cropToSquare(raw)
-                }
-            } catch (_: Exception) {
-            }
-        }
-
-        // 2. Deterministic per-song placeholder — never random, never another song's art.
-        return PlaceholderArt.bitmapFor(songId)
+        return SongArtworkCache.getOrDecode(context, songId, filePath, sourceUri)
     }
 
     /** Best-effort decode of an ordinary image URI through the ContentResolver. */

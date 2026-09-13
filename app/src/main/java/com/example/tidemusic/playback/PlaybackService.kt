@@ -61,7 +61,7 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
-        const val CHANNEL_ID = "tide_media_playback_v2"
+        const val CHANNEL_ID = "tide_media_playback_v3"
 
         const val ACTION_PLAY_PAUSE = "com.example.tidemusic.ACTION_PLAY_PAUSE"
         const val ACTION_PREVIOUS = "com.example.tidemusic.ACTION_PREVIOUS"
@@ -244,6 +244,12 @@ class PlaybackService : MediaSessionService() {
             })
             .build()
 
+        // CRITICAL for AndroidX Media3 & ColorOS Aqua Dynamics:
+        // Register the active MediaSession with MediaSessionService so MediaNotificationManager
+        // tracks playback events and manages the ongoing foreground notification.
+        addSession(mediaSession!!)
+        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_AFTER_STOP_OR_ERROR)
+
         setupNotificationChannel()
         val notificationProvider = TideMediaNotificationProvider(this)
         notificationProvider.setSmallIcon(R.drawable.ic_music_note)
@@ -257,12 +263,13 @@ class PlaybackService : MediaSessionService() {
             try {
                 nm?.deleteNotificationChannel("tide_fluid_dynamics_live")
                 nm?.deleteNotificationChannel("tide_playback_v1")
+                nm?.deleteNotificationChannel("tide_media_playback_v2")
             } catch (_: Exception) {}
 
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.media_notification_channel),
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Music playback controls and status bar capsule"
                 setShowBadge(false)
@@ -373,6 +380,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         saveState()
         mediaSession?.run {
+            removeSession(this)
             player.release()
             release()
         }
@@ -387,10 +395,11 @@ class PlaybackService : MediaSessionService() {
  * - CATEGORY_TRANSPORT (required by Android SystemUI and ColorOS Pantanal for Media Carousel)
  * - VISIBILITY_PUBLIC (shows controls on lock screen)
  * - isOngoing = true while playing
+ * - Synchronous largeIcon square cover art for ColorOS Aqua Dynamics / Fluid Cloud punch-hole capsule
  */
 @UnstableApi
 private class TideMediaNotificationProvider(
-    context: Context
+    private val context: Context
 ) : DefaultMediaNotificationProvider(
     context,
     { PlaybackService.NOTIFICATION_ID },
@@ -407,6 +416,16 @@ private class TideMediaNotificationProvider(
         builder.setCategory(NotificationCompat.CATEGORY_TRANSPORT)
         builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         builder.setOngoing(mediaSession.player.isPlaying)
+        builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+
+        // Ensure synchronous 1:1 square cover art bitmap for ColorOS Pantanal punch-hole capsule
+        val currentItem = mediaSession.player.currentMediaItem
+        val songId = currentItem?.mediaId?.toLongOrNull() ?: 0L
+        val filePath = currentItem?.mediaMetadata?.extras?.getString(PlaybackController.EXTRA_FILE_PATH) ?: ""
+        val sourceUri = currentItem?.requestMetadata?.mediaUri?.toString() ?: ""
+        val art = SongArtworkCache.getOrDecode(context, songId, filePath, sourceUri)
+        builder.setLargeIcon(art)
+
         return compactIndices
     }
 }
