@@ -89,6 +89,15 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_tide_pill_info" />
         </receiver>
+
+        <!-- Native Android MediaButtonReceiver for ColorOS / Realme UI / SystemUI media session routing -->
+        <receiver
+            android:name="androidx.media.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

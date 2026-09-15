@@ -20,6 +20,7 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionBridge
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
@@ -61,7 +62,7 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
-        const val CHANNEL_ID = "tide_media_playback_v3"
+        const val CHANNEL_ID = "tide_media_playback_v4"
 
         const val ACTION_PLAY_PAUSE = "com.example.tidemusic.ACTION_PLAY_PAUSE"
         const val ACTION_PREVIOUS = "com.example.tidemusic.ACTION_PREVIOUS"
@@ -115,6 +116,7 @@ class PlaybackService : MediaSessionService() {
                 playbackController.attachPlayer(exo)
                 exo.addListener(object : Player.Listener {
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        syncPlatformMediaSession()
                         val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: -1L
                         if (mediaId > 0L) {
                             serviceScope.launch(Dispatchers.IO) {
@@ -131,6 +133,22 @@ class PlaybackService : MediaSessionService() {
                                 }
                             }
                         }
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        syncPlatformMediaSession()
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        syncPlatformMediaSession()
+                    }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        syncPlatformMediaSession()
                     }
 
                     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -250,10 +268,53 @@ class PlaybackService : MediaSessionService() {
         addSession(mediaSession!!)
         setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_AFTER_STOP_OR_ERROR)
 
+        // Activate framework android.media.session.MediaSession so MediaSessionManager.getActiveSessions()
+        // detects this session and ColorOS Pantanal renders the status bar punch-hole capsule.
+        MediaSessionBridge.setupPlatformSession(mediaSession!!)
+        syncPlatformMediaSession()
+
         setupNotificationChannel()
         val notificationProvider = TideMediaNotificationProvider(this)
         notificationProvider.setSmallIcon(R.drawable.ic_music_note)
         setMediaNotificationProvider(notificationProvider)
+    }
+
+    private fun syncPlatformMediaSession() {
+        try {
+            val session = mediaSession ?: return
+            val exo = player ?: return
+            val currentItem = exo.currentMediaItem ?: return
+            val songId = currentItem.mediaId.toLongOrNull() ?: 0L
+            val filePath = currentItem.mediaMetadata.extras?.getString(PlaybackController.EXTRA_FILE_PATH) ?: ""
+            val sourceUri = currentItem.requestMetadata?.mediaUri?.toString() ?: ""
+            val title = currentItem.mediaMetadata.title?.toString()
+                ?: currentItem.mediaMetadata.displayTitle?.toString()
+                ?: "Unknown Track"
+            val artist = currentItem.mediaMetadata.artist?.toString() ?: "Unknown Artist"
+            val album = currentItem.mediaMetadata.albumTitle?.toString() ?: ""
+            val duration = exo.duration.coerceAtLeast(0L)
+            val isPlaying = exo.isPlaying
+
+            MediaSessionBridge.updatePlaybackState(
+                session = session,
+                isPlaying = isPlaying,
+                positionMs = exo.currentPosition,
+                playbackSpeed = exo.playbackParameters.speed
+            )
+
+            val art = SongArtworkCache.getOrDecode(this, songId, filePath, sourceUri)
+
+            MediaSessionBridge.updateMetadata(
+                session = session,
+                title = title,
+                artist = artist,
+                album = album,
+                durationMs = duration,
+                artworkBitmap = art
+            )
+        } catch (e: Throwable) {
+            android.util.Log.e("PlaybackService", "Error syncing platform media session", e)
+        }
     }
 
     private fun setupNotificationChannel() {
@@ -264,12 +325,13 @@ class PlaybackService : MediaSessionService() {
                 nm?.deleteNotificationChannel("tide_fluid_dynamics_live")
                 nm?.deleteNotificationChannel("tide_playback_v1")
                 nm?.deleteNotificationChannel("tide_media_playback_v2")
+                nm?.deleteNotificationChannel("tide_media_playback_v3")
             } catch (_: Exception) {}
 
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.media_notification_channel),
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Music playback controls and status bar capsule"
                 setShowBadge(false)
@@ -380,6 +442,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         saveState()
         mediaSession?.run {
+            MediaSessionBridge.setActive(this, false)
             removeSession(this)
             player.release()
             release()
@@ -416,7 +479,7 @@ private class TideMediaNotificationProvider(
         builder.setCategory(NotificationCompat.CATEGORY_TRANSPORT)
         builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         builder.setOngoing(mediaSession.player.isPlaying)
-        builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        builder.setPriority(NotificationCompat.PRIORITY_LOW)
 
         // Ensure synchronous 1:1 square cover art bitmap for ColorOS Pantanal punch-hole capsule
         val currentItem = mediaSession.player.currentMediaItem
