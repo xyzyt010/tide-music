@@ -55,6 +55,7 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <!-- Legacy MediaBrowserService client discovery (ColorOS Pantanal & Android Auto) -->
                 <action android:name="android.media.browse.MediaBrowserService" />
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
 

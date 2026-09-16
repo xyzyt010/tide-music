@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.tidemusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.6.7"
+        versionCode = 24
+        versionName = "1.6.8"
         // youtubedl-android bundles native binaries; restrict to arm64-v8a and armeabi-v7a for physical Android devices to keep APK size ~125MB.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -100,6 +100,8 @@ dependencies {
   implementation(libs.androidx.media3.session)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
+  // AndroidX Media (legacy MediaSessionCompat & NotificationCompat.MediaStyle matching VLC)
+  implementation("androidx.media:media:1.7.0")
 
   // Room
   implementation(libs.androidx.room.runtime)
