@@ -67,6 +67,9 @@ class PlaybackController constructor(
     private val _isPlayingState = MutableStateFlow(false)
     val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
 
+    private val _playerState = MutableStateFlow<Player?>(null)
+    val playerState: StateFlow<Player?> = _playerState.asStateFlow()
+
     fun toggleFavoriteCurrentSong(onResult: ((Boolean) -> Unit)? = null) {
         val id = currentMediaId ?: return
         ioScope.launch {
@@ -99,11 +102,7 @@ class PlaybackController constructor(
     fun ensureServiceStarted() {
         try {
             val intent = Intent(context, PlaybackService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(context, intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startService(intent)
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error starting PlaybackService", e)
         }
@@ -136,11 +135,20 @@ class PlaybackController constructor(
             player?.removeListener(listener)
         } catch (_: Exception) {}
         player = p
+        _playerState.value = p
         try {
             p.addListener(listener)
             _currentPlayingSongId.value = p.currentMediaItem?.mediaId?.toLongOrNull()
             _isPlayingState.value = p.isPlaying
         } catch (_: Exception) {}
+    }
+
+    fun detachPlayer() {
+        try {
+            player?.removeListener(listener)
+        } catch (_: Exception) {}
+        player = null
+        _playerState.value = null
     }
 
     /** Convert domain Song → MediaItem with full [MediaMetadata] for the notification. */

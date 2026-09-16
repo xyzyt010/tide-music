@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -19,6 +20,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.net.toUri
+import androidx.media.MediaBrowserServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media.session.MediaButtonReceiver
 import androidx.media3.common.AudioAttributes
@@ -27,18 +29,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.session.CommandButton
-import androidx.media3.session.MediaNotification
-import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
 import com.example.tidemusic.MainActivity
 import com.example.tidemusic.R
 import com.example.tidemusic.di.ServiceLocator
-import com.google.common.collect.ImmutableList
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,34 +40,33 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Native MediaSession & Playback Service mirroring the VLC for Android architecture.
+ * 1:1 VLC for Android Architecture PlaybackService.
  *
- * Provides full end-to-end integration for ColorOS 14 / Realme UI 5.0 Aqua Dynamics (Fluid Cloud)
- * status bar punch-hole capsule (pill with album art thumbnail and dancing equalizer bars):
+ * Extends [MediaBrowserServiceCompat] (the standard Android media service used by VLC, Spotify,
+ * and Pocket Casts). Completely eliminates Media3 hybrid session conflicts and provides 100%
+ * native integration with ColorOS 14 / Realme UI 5.0 Aqua Dynamics (Fluid Cloud) status bar
+ * punch-hole capsule (pill with album art thumbnail and dancing equalizer bars):
  *
- * 1. Owns a dedicated, standalone [MediaSessionCompat] with FLAG_HANDLES_MEDIA_BUTTONS and
- *    FLAG_HANDLES_TRANSPORT_CONTROLS, explicitly maintained with isActive = true.
- * 2. MediaButtonReceiver registered in Manifest and wired to MediaSessionCompat for hardware,
- *    Bluetooth, and ColorOS SystemUI transport routing.
- * 3. Builds notifications using [androidx.media.app.NotificationCompat.MediaStyle] linked
- *    directly to [MediaSessionCompat.sessionToken]. This injects both the platform MediaSession token
- *    and the NotificationCompat.EXTRA_MEDIA_SESSION ("android.media.session") parcelable.
- * 4. Synchronously updates [PlaybackStateCompat] (STATE_PLAYING / STATE_PAUSED, position, speed,
- *    actions bitmask) on all ExoPlayer events to drive the dancing equalizer animation.
- * 5. Synchronously updates [MediaMetadataCompat] with Title, Artist, Album, Duration, and 1:1 square
- *    cover art Bitmap to render the status bar capsule thumbnail and lockscreen card.
- * 6. Posts directly to [startForeground] when playing and detaches foreground when paused.
+ * 1. Exactly ONE [MediaSessionCompat] instance (tag "TideMusic").
+ * 2. Session published directly to [sessionToken] on the [MediaBrowserServiceCompat].
+ * 3. Flags: FLAG_HANDLES_MEDIA_BUTTONS or FLAG_HANDLES_TRANSPORT_CONTROLS.
+ * 4. isActive = true maintained throughout playback.
+ * 5. MediaButtonReceiver handles hardware, Bluetooth, and ColorOS SystemUI intents.
+ * 6. PlaybackStateCompat synchronously published on every ExoPlayer state change (STATE_PLAYING,
+ *    position, speed 1.0f, transport actions bitmask) to trigger the dancing 4-bar equalizer.
+ * 7. MediaMetadataCompat synchronously updated with 1:1 square Bitmap cover art for the capsule thumbnail.
+ * 8. NotificationCompat.MediaStyle bound to sessionToken with compact actions (0, 1, 2).
+ * 9. Direct foreground lifecycle via startForeground when playing and stopForeground(STOP_FOREGROUND_DETACH)
+ *    when paused.
  */
 @UnstableApi
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaBrowserServiceCompat() {
 
     private val playbackController: PlaybackController get() = ServiceLocator.playbackController
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
-
-    lateinit var mediaSessionCompat: MediaSessionCompat
+    lateinit var mediaSession: MediaSessionCompat
         private set
 
     @Volatile
@@ -117,32 +109,6 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        val closeCommandButton = CommandButton.Builder()
-            .setDisplayName("Close")
-            .setIconResId(R.drawable.ic_close_notification)
-            .setSessionCommand(SessionCommand(ACTION_CLOSE, Bundle.EMPTY))
-            .build()
-
-        fun buildFavoriteCommandButton(isFav: Boolean): CommandButton =
-            CommandButton.Builder()
-                .setDisplayName(if (isFav) "Favorited" else "Favorite")
-                .setIconResId(
-                    if (isFav) R.drawable.ic_notif_favorite_filled
-                    else R.drawable.ic_notif_favorite_border
-                )
-                .setSessionCommand(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
-                .build()
-
-        fun buildShuffleCommandButton(shuffleOn: Boolean): CommandButton =
-            CommandButton.Builder()
-                .setDisplayName(if (shuffleOn) "Shuffle On" else "Shuffle Off")
-                .setIconResId(
-                    if (shuffleOn) R.drawable.ic_notif_shuffle_on
-                    else R.drawable.ic_notif_shuffle_off
-                )
-                .setSessionCommand(SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY))
-                .build()
-
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
@@ -159,13 +125,6 @@ class PlaybackService : MediaSessionService() {
                                 isCurrentSongFavorite = fav
                                 withContext(Dispatchers.Main) {
                                     syncPlaybackAndNotification()
-                                    mediaSession?.setCustomLayout(
-                                        ImmutableList.of(
-                                            buildFavoriteCommandButton(fav),
-                                            buildShuffleCommandButton(exo.shuffleModeEnabled),
-                                            closeCommandButton
-                                        )
-                                    )
                                 }
                             }
                         }
@@ -186,142 +145,19 @@ class PlaybackService : MediaSessionService() {
                     ) {
                         syncPlaybackAndNotification()
                     }
-
-                    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                        mediaSession?.setCustomLayout(
-                            ImmutableList.of(
-                                buildFavoriteCommandButton(isCurrentSongFavorite),
-                                buildShuffleCommandButton(shuffleModeEnabled),
-                                closeCommandButton
-                            )
-                        )
-                    }
                 })
             }
 
         restoreState()
 
-        // 1. Initialize dedicated MediaSessionCompat matching VLC for Android
-        initMediaSessionCompat()
+        // Initialize MediaSessionCompat exactly mirroring VLC for Android
+        initMediaSession()
 
-        // 2. Initialize Media3 MediaSession so internal UI controllers (ConnectionHolder) stay connected
-        val sessionActivity = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply {
-                data = "tidemusic://player".toUri()
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        mediaSession = MediaSession.Builder(this, player!!)
-            .setSessionActivity(sessionActivity)
-            .setBitmapLoader(
-                androidx.media3.session.CacheBitmapLoader(TideArtworkBitmapLoader(this))
-            )
-            .setCustomLayout(ImmutableList.of(
-                buildFavoriteCommandButton(false),
-                buildShuffleCommandButton(player!!.shuffleModeEnabled),
-                closeCommandButton
-            ))
-            .setCallback(object : MediaSession.Callback {
-                override fun onConnect(
-                    session: MediaSession,
-                    controller: MediaSession.ControllerInfo
-                ): MediaSession.ConnectionResult {
-                    val connectionResult = super.onConnect(session, controller)
-                    val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
-                    availableSessionCommands.add(SessionCommand(ACTION_CLOSE, Bundle.EMPTY))
-                    availableSessionCommands.add(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
-                    availableSessionCommands.add(SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY))
-                    return MediaSession.ConnectionResult.accept(
-                        availableSessionCommands.build(),
-                        connectionResult.availablePlayerCommands
-                    )
-                }
-
-                override fun onCustomCommand(
-                    session: MediaSession,
-                    controller: MediaSession.ControllerInfo,
-                    customCommand: SessionCommand,
-                    args: Bundle
-                ): ListenableFuture<SessionResult> {
-                    when (customCommand.customAction) {
-                        ACTION_CLOSE -> {
-                            saveState()
-                            player?.stop()
-                            player?.clearMediaItems()
-                            stopForegroundCompat(true)
-                            stopSelf()
-                            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                        }
-                        ACTION_TOGGLE_FAVORITE -> {
-                            val currentItem = player?.currentMediaItem
-                            val songId = currentItem?.mediaId?.toLongOrNull()
-                            if (songId != null) {
-                                serviceScope.launch(Dispatchers.IO) {
-                                    try {
-                                        val nextFav = ServiceLocator.repository.toggleFavorite(songId)
-                                        isCurrentSongFavorite = nextFav
-                                        withContext(Dispatchers.Main) {
-                                            syncPlaybackAndNotification()
-                                            mediaSession?.setCustomLayout(
-                                                ImmutableList.of(
-                                                    buildFavoriteCommandButton(nextFav),
-                                                    buildShuffleCommandButton(player?.shuffleModeEnabled == true),
-                                                    closeCommandButton
-                                                )
-                                            )
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Error toggling favorite", e)
-                                    }
-                                }
-                            }
-                            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                        }
-                        ACTION_TOGGLE_SHUFFLE -> {
-                            val p = player
-                            if (p != null) {
-                                val nextShuffle = !p.shuffleModeEnabled
-                                playbackController.setShuffleMode(nextShuffle)
-                                mediaSession?.setCustomLayout(
-                                    ImmutableList.of(
-                                        buildFavoriteCommandButton(isCurrentSongFavorite),
-                                        buildShuffleCommandButton(nextShuffle),
-                                        closeCommandButton
-                                    )
-                                )
-                            }
-                            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                        }
-                    }
-                    return super.onCustomCommand(session, controller, customCommand, args)
-                }
-            })
-            .build()
-
-        addSession(mediaSession!!)
-        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_AFTER_STOP_OR_ERROR)
-
-        // Delegate Media3's internal notification manager to return our VLC-style MediaStyle notification
-        setMediaNotificationProvider(TideMediaNotificationProvider(this))
-
-        // Initial synchronization
+        // Initial state synchronization
         syncPlaybackAndNotification()
     }
 
-    /**
-     * Initializes MediaSessionCompat exactly mirroring VLC for Android:
-     * - MediaButtonReceiver intent & pending intent
-     * - MediaSessionCompat with ComponentName
-     * - FLAG_HANDLES_MEDIA_BUTTONS and FLAG_HANDLES_TRANSPORT_CONTROLS
-     * - Session Activity PendingIntent
-     * - MediaSessionCallback handling transport commands
-     * - isActive = true
-     */
-    private fun initMediaSessionCompat() {
+    private fun initMediaSession() {
         val mbrIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
             component = ComponentName(this@PlaybackService, MediaButtonReceiver::class.java)
         }
@@ -343,7 +179,7 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        mediaSessionCompat = MediaSessionCompat(
+        mediaSession = MediaSessionCompat(
             this,
             "TideMusic",
             ComponentName(this, MediaButtonReceiver::class.java),
@@ -357,12 +193,12 @@ class PlaybackService : MediaSessionService() {
             setCallback(MediaSessionCallback())
             isActive = true
         }
-        Log.i(TAG, "MediaSessionCompat initialized and activated (isActive=${mediaSessionCompat.isActive})")
+
+        // Publish sessionToken to MediaBrowserServiceCompat
+        sessionToken = mediaSession.sessionToken
+        Log.i(TAG, "MediaSessionCompat initialized, activated, and bound to MediaBrowserServiceCompat (isActive=${mediaSession.isActive})")
     }
 
-    /**
-     * MediaSessionCompat.Callback routing system/hardware/Bluetooth commands.
-     */
     private inner class MediaSessionCallback : MediaSessionCompat.Callback() {
         override fun onPlay() {
             player?.play()
@@ -406,11 +242,21 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    /**
-     * Publishes PlaybackStateCompat to [mediaSessionCompat] synchronously.
-     * ColorOS Pantanal checks for STATE_PLAYING and transport actions to trigger the
-     * dancing equalizer animation in the punch-hole capsule.
-     */
+    override fun onGetRoot(
+        clientPackageName: String,
+        clientUid: Int,
+        rootHints: Bundle?
+    ): BrowserRoot {
+        return BrowserRoot("tide_media_root", null)
+    }
+
+    override fun onLoadChildren(
+        parentId: String,
+        result: Result<MutableList<MediaBrowserCompat.MediaItem>>
+    ) {
+        result.sendResult(mutableListOf())
+    }
+
     private fun publishPlaybackState() {
         try {
             val p = player ?: return
@@ -423,23 +269,18 @@ class PlaybackService : MediaSessionService() {
                 .setActions(STANDARD_ACTIONS)
                 .setState(state, position, speed, SystemClock.elapsedRealtime())
 
-            mediaSessionCompat.setPlaybackState(stateBuilder.build())
-            mediaSessionCompat.isActive = true
+            mediaSession.setPlaybackState(stateBuilder.build())
+            mediaSession.isActive = true
         } catch (e: Throwable) {
             Log.e(TAG, "Error publishing playback state", e)
         }
     }
 
-    /**
-     * Publishes MediaMetadataCompat containing Title, Artist, Album, Duration, and 1:1 square
-     * cover art Bitmap to [mediaSessionCompat]. ColorOS Pantanal uses this bitmap to render
-     * the status bar capsule thumbnail and lockscreen player card.
-     */
     private fun updateMetadata() {
         try {
             val p = player ?: return
             val currentItem = p.currentMediaItem ?: run {
-                mediaSessionCompat.setMetadata(null)
+                mediaSession.setMetadata(null)
                 return
             }
 
@@ -467,21 +308,13 @@ class PlaybackService : MediaSessionService() {
                 metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, artBitmap)
             }
 
-            mediaSessionCompat.setMetadata(metaBuilder.build())
+            mediaSession.setMetadata(metaBuilder.build())
         } catch (e: Throwable) {
             Log.e(TAG, "Error updating metadata", e)
         }
     }
 
-    /**
-     * Builds the standard MediaStyle notification matching VLC for Android:
-     * - Uses [androidx.media.app.NotificationCompat.MediaStyle]
-     * - Calls [MediaStyle.setMediaSession] with [mediaSessionCompat.sessionToken]
-     * - Configures compact view actions: 0 (Prev), 1 (Play/Pause), 2 (Next)
-     * - Injects square largeIcon Bitmap
-     * - Sets CATEGORY_TRANSPORT and VISIBILITY_PUBLIC
-     */
-    internal fun buildNotification(): Notification {
+    fun buildNotification(): Notification {
         val p = player
         val isPlaying = p?.isPlaying == true
         val currentItem = p?.currentMediaItem
@@ -518,7 +351,7 @@ class PlaybackService : MediaSessionService() {
         val favIcon = if (isCurrentSongFavorite) R.drawable.ic_notif_favorite_filled else R.drawable.ic_notif_favorite_border
 
         val mediaStyle = MediaStyle()
-            .setMediaSession(mediaSessionCompat.sessionToken)
+            .setMediaSession(mediaSession.sessionToken)
             .setShowActionsInCompactView(0, 1, 2)
             .setShowCancelButton(true)
             .setCancelButtonIntent(closeIntent)
@@ -558,10 +391,6 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
-    /**
-     * Synchronously synchronizes session playback state, metadata, and posts the notification.
-     * Starts foreground when playing, and updates detached notification when paused.
-     */
     private fun syncPlaybackAndNotification() {
         try {
             publishPlaybackState()
@@ -668,7 +497,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
-            MediaButtonReceiver.handleIntent(mediaSessionCompat, intent)
+            MediaButtonReceiver.handleIntent(mediaSession, intent)
 
             when (intent.action) {
                 ACTION_PLAY_PAUSE -> {
@@ -705,9 +534,6 @@ class PlaybackService : MediaSessionService() {
         return START_STICKY
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
-
     override fun onTaskRemoved(rootIntent: Intent?) {
         saveState()
         val p = player
@@ -720,48 +546,14 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         saveState()
         try {
-            mediaSessionCompat.isActive = false
-            mediaSessionCompat.release()
+            mediaSession.isActive = false
+            mediaSession.release()
         } catch (e: Throwable) {
-            Log.e(TAG, "Error releasing mediaSessionCompat", e)
+            Log.e(TAG, "Error releasing mediaSession", e)
         }
-        mediaSession?.run {
-            removeSession(this)
-            player.release()
-            release()
-        }
-        mediaSession = null
+        playbackController.detachPlayer()
+        player?.release()
         player = null
         super.onDestroy()
-    }
-}
-
-/**
- * Custom notification provider delegating directly to VLC-style MediaStyle notification.
- */
-@UnstableApi
-private class TideMediaNotificationProvider(
-    private val service: PlaybackService
-) : MediaNotification.Provider {
-    override fun createNotification(
-        mediaSession: MediaSession,
-        customLayout: ImmutableList<CommandButton>,
-        actionFactory: MediaNotification.ActionFactory,
-        onNotificationChangedCallback: MediaNotification.Provider.Callback
-    ): MediaNotification {
-        return MediaNotification(PlaybackService.NOTIFICATION_ID, service.buildNotification())
-    }
-
-    override fun handleCustomCommand(
-        session: MediaSession,
-        action: String,
-        extras: Bundle
-    ): Boolean = false
-
-    override fun getNotificationChannelInfo(): MediaNotification.Provider.NotificationChannelInfo {
-        return MediaNotification.Provider.NotificationChannelInfo(
-            PlaybackService.CHANNEL_ID,
-            service.getString(R.string.media_notification_channel)
-        )
     }
 }

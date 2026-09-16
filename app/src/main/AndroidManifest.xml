@@ -20,8 +20,6 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Run seamlessly in the background when app is swiped from recents -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- ColorOS / Realme UI custom notification privilege -->
-    <uses-permission android:name="com.coloros.notification.permission.SHOW_CUSTOM_NOTIFICATION" />
 
     <application
         android:name=".TideMusicApp"
@@ -44,16 +42,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Media3 MediaSessionService: owns ExoPlayer + MediaSession, runs as a
-             bound+started foreground service so playback survives navigation / backgrounding.
-             ExoPlayer must NEVER be touched directly from the UI layer. -->
+        <!-- MediaBrowserServiceCompat: owns ExoPlayer + MediaSessionCompat (matching VLC for Android),
+             runs as a foreground service during active playback. -->
         <service
             android:name="com.example.tidemusic.playback.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
-                <action android:name="androidx.media3.session.MediaSessionService" />
-                <!-- Legacy MediaBrowserService client discovery (ColorOS Pantanal & Android Auto) -->
                 <action android:name="android.media.browse.MediaBrowserService" />
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>

@@ -26,8 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.example.tidemusic.di.ServiceLocator
-import com.example.tidemusic.playback.ConnectionHolder
-import com.example.tidemusic.playback.MusicManager
 import com.example.tidemusic.theme.TideMusicTheme
 import com.example.tidemusic.ui.AppShell
 import com.example.tidemusic.ui.LocalMediaController
@@ -53,8 +51,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize app-wide playback manager (Option A)
-        MusicManager.get(this)
         requestNotificationPermissionIfNeeded()
 
         // lock the player deep-link intent: open the Player screen if the system routed us here.
@@ -81,14 +77,11 @@ class MainActivity : ComponentActivity() {
                     splashVisible = false
                 }
 
-                // Connect to the MediaSessionService once for the app's lifetime.
-                DisposableEffect(Unit) {
-                    ConnectionHolder.connect(context)
+                LaunchedEffect(Unit) {
                     ServiceLocator.playbackController.ensureServiceStarted()
-                    onDispose { ConnectionHolder.disconnect() }
                 }
-                val controller by ConnectionHolder.controller.collectAsState()
-                CompositionLocalProvider(LocalMediaController provides controller) {
+                val player by ServiceLocator.playbackController.playerState.collectAsState()
+                CompositionLocalProvider(LocalMediaController provides player) {
                     Box(Modifier.fillMaxSize()) {
                         AppShell(initialDeepLink = initialDeepLink)
 

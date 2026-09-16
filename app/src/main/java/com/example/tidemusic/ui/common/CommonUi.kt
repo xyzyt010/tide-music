@@ -891,7 +891,7 @@ fun SongRow(
 }
 
 @Composable
-fun rememberMediaController(): MediaController? = LocalMediaController.current
+fun rememberMediaController(): Player? = LocalMediaController.current
 
 enum class SortCriteria(val label: String, val group: String) {
     PROBABLE_USAGE("Ranked by Probable Usage (Most Used to Least Used)", "usage"),

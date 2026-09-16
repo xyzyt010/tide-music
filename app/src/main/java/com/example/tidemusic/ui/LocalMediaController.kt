@@ -2,14 +2,13 @@ package com.example.tidemusic.ui
 
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
-import androidx.media3.session.MediaController
+import androidx.media3.common.Player
 
 /**
- * CompositionLocal exposing the connected [MediaController] (or null until connected).
+ * CompositionLocal exposing the active playback [Player] (or null until attached).
  *
- * Provided once from [com.example.tidemusic.MainActivity]'s composition scope. Screens that
- * need playback actions read this; screens that need live state poll the controller via the
- * helpers in controller.observe package. Never touch ExoPlayer directly from Compose.
+ * Provided once from [com.example.tidemusic.MainActivity]'s composition scope from
+ * [com.example.tidemusic.playback.PlaybackController.playerState].
  */
-val LocalMediaController: ProvidableCompositionLocal<MediaController?> =
+val LocalMediaController: ProvidableCompositionLocal<Player?> =
     compositionLocalOf { null }
