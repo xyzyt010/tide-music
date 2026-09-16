@@ -12,11 +12,29 @@ android {
         applicationId = "com.example.tidemusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.6.9"
+        versionCode = 26
+        versionName = "1.6.10"
         // youtubedl-android bundles native binaries; restrict to arm64-v8a and armeabi-v7a for physical Android devices to keep APK size ~125MB.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    flavorDimensions += "target"
+    productFlavors {
+        create("standard") {
+            dimension = "target"
+            applicationId = "com.example.tidemusic"
+        }
+        create("vlc") {
+            dimension = "target"
+            applicationId = "org.videolan.vlc"
+            versionNameSuffix = "-vlc"
+        }
+        create("spotify") {
+            dimension = "target"
+            applicationId = "com.spotify.music"
+            versionNameSuffix = "-spotify"
         }
     }
 
