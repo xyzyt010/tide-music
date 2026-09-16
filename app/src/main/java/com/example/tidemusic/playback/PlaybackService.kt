@@ -4,15 +4,19 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -21,6 +25,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.net.toUri
 import androidx.media.MediaBrowserServiceCompat
+import androidx.media.VolumeProviderCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media.session.MediaButtonReceiver
 import androidx.media3.common.AudioAttributes
@@ -97,12 +102,35 @@ class PlaybackService : MediaBrowserServiceCompat() {
             PlaybackStateCompat.ACTION_SET_SHUFFLE_MODE
     }
 
+    private var volumeProvider: VolumeProviderCompat? = null
+
+    private val volumeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
+                val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                val cur = am?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: return
+                volumeProvider?.currentVolume = cur
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(this)
         System.setProperty("java.net.preferIPv4Stack", "true")
 
         setupNotificationChannel()
+
+        try {
+            val filter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(volumeReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(volumeReceiver, filter)
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error registering volume receiver", e)
+        }
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -145,6 +173,10 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     ) {
                         syncPlaybackAndNotification()
                     }
+
+                    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                        syncPlaybackAndNotification()
+                    }
                 })
             }
 
@@ -155,6 +187,43 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
         // Initial state synchronization
         syncPlaybackAndNotification()
+    }
+
+    private fun setupVolumeControl() {
+        try {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+
+            val provider = object : VolumeProviderCompat(
+                VOLUME_CONTROL_ABSOLUTE,
+                maxVol,
+                curVol
+            ) {
+                override fun onSetVolumeTo(volume: Int) {
+                    try {
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0)
+                        currentVolume = volume
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "Error setting stream volume", e)
+                    }
+                }
+
+                override fun onAdjustVolume(direction: Int) {
+                    try {
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
+                        currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "Error adjusting stream volume", e)
+                    }
+                }
+            }
+            volumeProvider = provider
+            mediaSession.setPlaybackToRemote(provider)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error setting up VolumeProviderCompat", e)
+            mediaSession.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+        }
     }
 
     private fun initMediaSession() {
@@ -194,6 +263,9 @@ class PlaybackService : MediaBrowserServiceCompat() {
             isActive = true
         }
 
+        // Enable system volume slider integration for expanded pill/card
+        setupVolumeControl()
+
         // Publish sessionToken to MediaBrowserServiceCompat
         sessionToken = mediaSession.sessionToken
         Log.i(TAG, "MediaSessionCompat initialized, activated, and bound to MediaBrowserServiceCompat (isActive=${mediaSession.isActive})")
@@ -218,6 +290,15 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
         override fun onSeekTo(pos: Long) {
             player?.seekTo(pos)
+        }
+
+        override fun onSkipToQueueItem(id: Long) {
+            val index = id.toInt()
+            val p = player ?: return
+            if (index in 0 until p.mediaItemCount) {
+                p.seekTo(index, 0L)
+                if (!p.isPlaying) p.play()
+            }
         }
 
         override fun onStop() {
@@ -247,14 +328,75 @@ class PlaybackService : MediaBrowserServiceCompat() {
         clientUid: Int,
         rootHints: Bundle?
     ): BrowserRoot {
-        return BrowserRoot("tide_media_root", null)
+        val rootExtras = Bundle().apply {
+            putBoolean("android.service.media.extra.RECENT", true)
+            putBoolean("android.service.media.extra.OFFLINE", true)
+        }
+        return BrowserRoot("tide_media_root", rootExtras)
     }
 
     override fun onLoadChildren(
         parentId: String,
         result: Result<MutableList<MediaBrowserCompat.MediaItem>>
     ) {
-        result.sendResult(mutableListOf())
+        try {
+            val p = player
+            if (p != null && p.mediaItemCount > 0) {
+                val list = mutableListOf<MediaBrowserCompat.MediaItem>()
+                for (i in 0 until p.mediaItemCount.coerceAtMost(50)) {
+                    val item = p.getMediaItemAt(i)
+                    val title = item.mediaMetadata.title?.toString()
+                        ?: item.mediaMetadata.displayTitle?.toString()
+                        ?: "Track ${i + 1}"
+                    val artist = item.mediaMetadata.artist?.toString() ?: "Unknown Artist"
+                    val desc = MediaDescriptionCompat.Builder()
+                        .setMediaId(item.mediaId)
+                        .setTitle(title)
+                        .setSubtitle(artist)
+                        .setDescription(item.mediaMetadata.albumTitle?.toString())
+                        .setIconUri(item.mediaMetadata.artworkUri)
+                        .build()
+                    list.add(MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_PLAYABLE))
+                }
+                result.sendResult(list)
+            } else {
+                result.sendResult(mutableListOf())
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error in onLoadChildren", e)
+            result.sendResult(mutableListOf())
+        }
+    }
+
+    private fun publishQueue() {
+        try {
+            val p = player ?: return
+            val count = p.mediaItemCount
+            if (count == 0) {
+                mediaSession.setQueue(emptyList())
+                return
+            }
+            val queueItems = ArrayList<MediaSessionCompat.QueueItem>(count.coerceAtMost(50))
+            for (i in 0 until count.coerceAtMost(50)) {
+                val item = p.getMediaItemAt(i)
+                val title = item.mediaMetadata.title?.toString()
+                    ?: item.mediaMetadata.displayTitle?.toString()
+                    ?: "Track ${i + 1}"
+                val artist = item.mediaMetadata.artist?.toString() ?: "Unknown Artist"
+                val desc = MediaDescriptionCompat.Builder()
+                    .setMediaId(item.mediaId)
+                    .setTitle(title)
+                    .setSubtitle(artist)
+                    .setDescription(item.mediaMetadata.albumTitle?.toString())
+                    .setIconUri(item.mediaMetadata.artworkUri)
+                    .build()
+                queueItems.add(MediaSessionCompat.QueueItem(desc, i.toLong()))
+            }
+            mediaSession.setQueue(queueItems)
+            mediaSession.setQueueTitle("Current Queue")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error publishing queue", e)
+        }
     }
 
     private fun publishPlaybackState() {
@@ -347,6 +489,11 @@ class PlaybackService : MediaBrowserServiceCompat() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val isShuffle = player?.shuffleModeEnabled == true
+        val shuffleIcon = if (isShuffle) R.drawable.ic_notif_shuffle_on else R.drawable.ic_notif_shuffle_off
+        val shuffleTitle = if (isShuffle) "Shuffle On" else "Shuffle Off"
+        val shuffleIntent = buildActionIntent(ACTION_TOGGLE_SHUFFLE)
+
         val playPauseIcon = if (isPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
         val favIcon = if (isCurrentSongFavorite) R.drawable.ic_notif_favorite_filled else R.drawable.ic_notif_favorite_border
 
@@ -370,11 +517,11 @@ class PlaybackService : MediaBrowserServiceCompat() {
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(mediaStyle)
-            .addAction(R.drawable.ic_notif_prev, "Previous", prevIntent)
-            .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPauseIntent)
-            .addAction(R.drawable.ic_notif_next, "Next", nextIntent)
-            .addAction(favIcon, if (isCurrentSongFavorite) "Favorited" else "Favorite", favIntent)
-            .addAction(R.drawable.ic_close_notification, "Close", closeIntent)
+            .addAction(R.drawable.ic_notif_prev, "Previous", prevIntent)                       // Action 0
+            .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPauseIntent)     // Action 1
+            .addAction(R.drawable.ic_notif_next, "Next", nextIntent)                           // Action 2
+            .addAction(favIcon, if (isCurrentSongFavorite) "Favorited" else "Favorite", favIntent) // Action 3
+            .addAction(shuffleIcon, shuffleTitle, shuffleIntent)                                // Action 4 (dynamic transforming button)
 
         return builder.build()
     }
@@ -395,6 +542,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
         try {
             publishPlaybackState()
             updateMetadata()
+            publishQueue()
             val notif = buildNotification()
             val isPlaying = player?.isPlaying == true
             if (isPlaying) {
@@ -545,6 +693,9 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
     override fun onDestroy() {
         saveState()
+        try {
+            unregisterReceiver(volumeReceiver)
+        } catch (_: Throwable) {}
         try {
             mediaSession.isActive = false
             mediaSession.release()

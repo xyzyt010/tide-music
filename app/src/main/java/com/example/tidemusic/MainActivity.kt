@@ -51,8 +51,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        requestNotificationPermissionIfNeeded()
-
         // lock the player deep-link intent: open the Player screen if the system routed us here.
         val initialDeepLink = intent?.dataString
         enableEdgeToEdge()
@@ -120,17 +118,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        requestNotificationPermissionIfNeeded()
         if (hasAllPermissions()) {
             triggerLibraryScan()
             com.example.tidemusic.util.BatteryOptimizationHelper.promptIfNeeded(this)
-        }
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
+        } else {
             requestPermissionsIfNeeded()
         }
     }
@@ -145,10 +136,7 @@ class MainActivity : ComponentActivity() {
         val hasAllFiles = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             android.os.Environment.isExternalStorageManager()
         } else true
-        val hasNotif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else true
-        return hasAudio && hasAllFiles && hasNotif
+        return hasAudio && hasAllFiles
     }
 
     private fun checkManageAllFilesPermission() {
@@ -167,8 +155,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Requests READ_MEDIA_AUDIO (API 33+) / READ_EXTERNAL_STORAGE (below 33)
-     * and POST_NOTIFICATIONS (API 33+).
+     * Requests READ_MEDIA_AUDIO (API 33+) / READ_EXTERNAL_STORAGE (below 33).
+     * System status bar pill/capsule does not require notification permission.
      */
     private fun requestPermissionsIfNeeded() {
         val perms = mutableListOf<String>()
@@ -180,13 +168,6 @@ class MainActivity : ComponentActivity() {
         }
         if (ContextCompat.checkSelfPermission(this, audioPerm) != PackageManager.PERMISSION_GRANTED) {
             perms.add(audioPerm)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val notifPerm = Manifest.permission.POST_NOTIFICATIONS
-            if (ContextCompat.checkSelfPermission(this, notifPerm) != PackageManager.PERMISSION_GRANTED) {
-                perms.add(notifPerm)
-            }
         }
 
         if (perms.isNotEmpty()) {
