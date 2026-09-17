@@ -1,172 +1,82 @@
-# 🎵 Tide Music (Android)
+﻿# 🎵 Tide Music
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="Tide Music Logo" width="120" height="120" style="border-radius: 24px;" />
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="Tide Music Logo" width="110" height="110" style="border-radius: 24px;" />
 </p>
 
 <p align="center">
-  <strong>A modern, high-performance, open-source Android music player and downloader built with Jetpack Compose, Media3 ExoPlayer, and Room DB.</strong>
+  <strong>A modern, lightweight, high-fidelity Android music player crafted with Jetpack Compose, Media3 ExoPlayer, and Room DB.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/xyzyt010/tide-music/actions"><img src="https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square&logo=github-actions" alt="Build Status" /></a>
-  <a href="https://developer.android.com/about/versions/oreo"><img src="https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-blue?style=flat-square&logo=android" alt="Android Version" /></a>
-  <a href="https://kotlinlang.org/"><img src="https://img.shields.io/badge/Kotlin-2.1.0-purple?style=flat-square&logo=kotlin" alt="Kotlin" /></a>
-  <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-blueviolet?style=flat-square&logo=jetpackcompose" alt="Jetpack Compose" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-orange?style=flat-square" alt="License" /></a>
+  <a href="https://github.com/xyzyt010/tide-music/releases/latest"><img src="https://img.shields.io/badge/Release-Latest%20APK-blue?style=flat-square&logo=android" alt="Download APK" /></a>
+  <a href="https://developer.android.com/about/versions/oreo"><img src="https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-brightgreen?style=flat-square&logo=android" alt="Android Version" /></a>
+  <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/UI-Material%203%20Compose-purple?style=flat-square&logo=jetpackcompose" alt="Jetpack Compose" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-orange?style=flat-square" alt="License: MIT" /></a>
 </p>
 
 ---
 
-## 🌟 Key Features
+## ✨ Overview
 
-### 🎧 Audio Engine & Media Session
-- **Media3 ExoPlayer Core**: Ultra-low-latency, gapless playback with full background service lifecycle integration.
-- **System Notification & Lock Screen Controls**: Rich metadata broadcasting, artwork caching, and responsive media actions.
-- **Hardware Equalizer**: Built-in 5-band equalizer with Bass Boost, Virtualizer, preset profiles, and customizable gains.
-- **Sleep Timer**: Customizable countdown timer that gently fades out and stops playback.
-
-### 📜 Dual-Mode Synchronized Lyrics Engine
-- **Auto-Scroll Mode**: Real-time LRC lyric synchronizer that seamlessly tracks playback timestamps with spring physics.
-- **Interactive Gesture Interception**: User scroll drags pause auto-scroll without fighting the user, keeping active lines highlighted, with a floating `"Resume Auto-Scroll"` chip.
-- **Manual Mode**: Clean text rendering with persisted scroll position.
-- **Embedded & External LRC Support**: Automatically loads embedded lyrics from audio metadata and adjacent `.lrc` files, with an integrated LRC picker and tag editor.
-
-### 📥 YouTube / yt-dlp Audio Downloader
-- **Native Audio Extraction**: Seamlessly download high-bitrate audio directly from YouTube URLs into standard MP3/M4A.
-- **Subtitle & Lyrics Fetching**: Automatic downloading and conversion of YouTube creator subtitles and auto-generated captions into `.lrc` / `.srt` synced lyrics files.
-- **Batch Processing & Quality Selection**: Select audio bitrates, custom folders, and monitor real-time download progress.
-
-### 🎨 Fluid, Gesture-Driven UI / UX
-- **Expanding Mini-Player**: Bottom mini-player stretches and slides upward into the full player screen with fluid spring animations.
-- **Frosted Glass / Tint Separation**: Frosted artwork backdrops, monochromatic dark styling, and translucent division lines.
-- **Multi-Selection & Batch Operations**: Select multiple songs for queuing, playlist insertion, sharing, or batch deletion.
-- **3-Dot Context Menus**: Universal options across all sections (Songs, Albums, Folders, Playlists, Downloads, Queue).
-
-### 📁 Smart Library & Playlist Management
-- **Automatic Audio Scanning**: High-speed filesystem & MediaStore indexing for FLAC, MP3, WAV, M4A, OGG, and AAC files.
-- **100% Functional Built-in Playlists**:
-  - ⭐ **Favorites**: Instantly heart tracks from the player or list.
-  - 🕒 **Recently Played**: Real-time timestamp tracking on track transition.
-  - 🆕 **Recently Added**: Ordered strictly by file addition date.
-  - 🔥 **Most Played**: Complete play count tracking with per-song play metrics.
-  - 💤 **Not Played**: Discover untouched music in your library.
-- **Custom Playlists**: Create, reorder, rename, and manage custom playlists.
-- **Folder Navigation**: Tree-based directory browser with fast child folder navigation.
+**Tide Music** is an elegant, open-source music player engineered for seamless performance and studio-quality sound. Built entirely in modern Kotlin with Jetpack Compose and AndroidX Media3, it combines minimalist Material 3 design with powerful DSP audio enhancements, intelligent non-repeating shuffle, and an integrated offline media downloader.
 
 ---
 
-## 📱 Screenshots & Visual Flow
+## 🚀 Key Features
 
-```
-┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
-│   Full Player   │       │ Synchronized    │       │ Smart Playlists │
-│  Vinyl / Art    │ <───> │  Lyrics View    │       │ & Audio Engine  │
-│  Seek & Volume  │       │ Auto / Manual   │       │ Equalizer / DSP │
-└────────┬────────┘       └─────────────────┘       └─────────────────┘
-         │
-         │ (Smooth Vertical Expand / Collapse)
-         ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ 🎵 Song Title - Artist           ⏮️  ▶️  ⏭️  🔀  [ Mini Player Bar ] │
-├─────────────────────────────────────────────────────────────────────┤
-│ ────────── Translucent Highlight Division Line ──────────────────── │
-│ 🏠 Player  |  📜 Queue  |  💿 Albums  |  📁 Folders  |  🔍 Search   │
-└─────────────────────────────────────────────────────────────────────┘
-```
+### 🎧 High-Fidelity Audio & Smart Volume
+* **Media3 ExoPlayer Core**: Zero-lag gapless playback, comprehensive format decoding (FLAC, MP3, WAV, M4A, OGG, AAC), and low battery consumption.
+* **🔊 Smart Volume Extra**: Hardware-accelerated DSP loudness enhancer (+3.0 dB clean makeup gain) delivering richer, louder output across phone speakers, Bluetooth earbuds, and car audio without digital clipping.
+* **🎛️ Graphic Equalizer**: 10-band equalizer with Bass Boost, 3D Virtualizer, preamp gain controls, and custom device profiles.
+* **Notification & Lock Screen Controls**: System media controls with real-time seek bar, album art rendering, and dynamic shuffle toggles.
 
----
+### 🎲 Hardware-Entropy Smart Shuffle
+* **Dynamic Hardware Entropy**: Utilizes real-time device hardware signals (thermal sensors, battery voltage fluctuations, and nanosecond monotonic clocks) mixed with cryptographic SHA-256 to ensure every shuffle sequence is truly unpredictable.
+* **Anti-Repeat History Protection**: Remembers recently played tracks and partitions them away from upcoming cycles, completely eliminating repetitive playback.
+* **Arbitrary Random Start**: Tapping "Shuffle All" begins on an unpredictable track from your library rather than defaulting to track 1.
 
-## 🛠️ Tech Stack & Architecture
+### 📜 Synced Dual-Mode Lyrics
+* **Fluid Auto-Scroll**: Time-synced LRC lyric engine that smoothly follows audio playback with spring physics.
+* **Interactive Gesture Interception**: Scroll manually without disrupting tracking, featuring an instant "Resume" chip.
+* **Embedded & Local LRC**: Reads embedded metadata lyrics and auto-detects adjacent `.lrc` files.
 
-| Component | Technology | Description |
-|---|---|---|
-| **Language** | Kotlin 2.1.0 | 100% Kotlin codebase |
-| **UI Framework** | Jetpack Compose + Material 3 | Declarative, modern UI toolkit |
-| **Audio Engine** | AndroidX Media3 ExoPlayer | Robust media playback and notification service |
-| **Local Database** | Room DB + KSP | SQLite ORM for songs, playlists, tags, and metrics |
-| **Image Loading** | Coil 3 Compose | Fast asynchronous image & embedded artwork loading |
-| **Downloader** | `youtubedl-android` (yt-dlp + ffmpeg) | On-device audio extraction and subtitle parsing |
-| **Architecture** | Clean Architecture + MVVM + UDF | Unidirectional Data Flow with Kotlin StateFlow/Coroutines |
+### 📥 On-Device Media Downloader
+* **High-Bitrate Extraction**: Download offline audio directly into standard MP3/M4A formats.
+* **Automatic Lyrics Sync**: Automatically extracts captions and converts them into time-synced `.lrc` lyric files.
+
+### 🎨 Clean Material 3 Interface
+* **Spring-Animated Mini Player**: Floating player stretches and expands smoothly into the full player screen.
+* **Dynamic Backdrop Glass**: Frosted artwork backgrounds that adapt colors to match the currently playing song.
+* **Smart Library**: Fast local storage indexing, tree folder navigation, multi-selection batch actions, and dynamic smart playlists (*Favorites*, *Most Played*, *Recently Added*, *Not Played*).
+* **Sleep Timer**: Gentle fade-out countdown timer for evening listening.
 
 ---
 
-## 🚀 Getting Started & Building from Source
+## 📲 Download & Installation
 
-### Prerequisites
-- **Android Studio Ladybug (2024.2+)** or newer
-- **JDK 17** (Temurin, Zulu, or Android Studio bundled JDK)
-- **Android SDK Platform 36** (API 36)
-- **NDK** (for yt-dlp native ABI libraries)
-
-### Clone & Build
-```bash
-# Clone the repository
-git clone https://github.com/xyzyt010/tide-music.git
-cd tide-music
-
-# Build Debug APK
-./gradlew assembleDebug
-
-# Build Release APK
-./gradlew assembleRelease
-```
-
-The compiled APK will be available in:
-```
-app/build/outputs/apk/debug/app-debug.apk
-```
+1. Head to the **[Latest Release](https://github.com/xyzyt010/tide-music/releases/latest)** page.
+2. Download the latest `.apk` file onto your Android device.
+3. Open the downloaded file and tap **Install** *(if prompted, enable "Install unknown apps" for your browser or file manager)*.
+4. Launch **Tide Music**, grant audio storage permissions when requested, and enjoy your music!
 
 ---
 
-## 📂 Project Structure
+## 🛠️ Tech Stack
 
-```
-app/src/main/java/com/example/tidemusic/
-├── data/
-│   ├── db/                 # Room database, DAOs (SongDao, PlaylistDao), Entities
-│   └── SettingsManager.kt  # User preferences & persistent settings (Flow)
-├── domain/
-│   ├── LibraryRepository.kt# Single source of truth for audio files and database
-│   └── Models.kt           # Domain models (Song, Album, Playlist, Folder)
-├── playback/
-│   ├── PlaybackController.kt # Media3 controller interface & queue management
-│   ├── PlaybackService.kt    # Android MediaSessionService background runner
-│   ├── AudioEffectsManager.kt# Equalizer, Bass Boost & Virtualizer engine
-│   └── SleepTimerManager.kt  # Fading sleep timer
-├── ui/
-│   ├── AppShell.kt         # Navigation graph, bottom bar & animated mini player
-│   ├── common/             # Reusable UI components, 3-dot menus, SongRow, MiniPlayer
-│   ├── player/             # Fullscreen player, vinyl animator, synchronized lyrics
-│   ├── playlists/          # Custom & built-in playlist screens with play stats
-│   ├── albums/             # Album grid & detail view
-│   ├── folders/            # Hierarchical directory explorer
-│   ├── search/             # Instant search filter across songs, artists, albums
-│   ├── queue/              # Live play queue with drag-to-reorder
-│   └── download/           # YouTube audio & subtitle downloader interface
-└── util/
-    ├── DurationFormatter.kt# Formatting helpers
-    └── SongArtworkRequest.kt # Coil custom fetcher for embedded album art
-```
-
----
-
-## 🤝 Contributing
-
-Contributions are warmly welcomed! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for details on submitting pull requests, reporting issues, and setting up your development environment.
+* **UI**: Jetpack Compose & Material Design 3
+* **Audio Engine**: AndroidX Media3 (ExoPlayer, MediaSession, AudioFX LoudnessEnhancer)
+* **Local Storage**: Room Database & DataStore Preferences
+* **Image Loading**: Coil 3 Compose
+* **Downloader**: `youtubedl-android` (yt-dlp & FFmpeg)
+* **Architecture**: Clean Architecture with MVVM and Unidirectional Data Flow
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **[MIT License](LICENSE)** — a permissive open-source license allowing free personal and commercial use, modification, and distribution.
 
 ```
-Copyright 2026 Tide Music Contributors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
+Copyright (c) 2026 Tide Music Contributors
 ```

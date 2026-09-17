@@ -53,6 +53,24 @@ class SettingsManager(context: Context) {
         _isAquaDynamicsPillEnabled.value = enabled
     }
 
+    /** Controls Smart Volume Extra (hardware-accelerated loudness extension matching YouTube). */
+    private val _isSmartLoudnessEnabled = MutableStateFlow(prefs.getBoolean("smart_loudness_enabled", true))
+    val isSmartLoudnessEnabled: StateFlow<Boolean> = _isSmartLoudnessEnabled
+
+    fun setSmartLoudnessEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("smart_loudness_enabled", enabled).apply()
+        _isSmartLoudnessEnabled.value = enabled
+    }
+
+    /** Smart Volume boost in millibels (default 300 mB = +3.0 dB clean extension). */
+    private val _smartLoudnessGainMb = MutableStateFlow(prefs.getInt("smart_loudness_gain_mb", 300))
+    val smartLoudnessGainMb: StateFlow<Int> = _smartLoudnessGainMb
+
+    fun setSmartLoudnessGainMb(gainMb: Int) {
+        prefs.edit().putInt("smart_loudness_gain_mb", gainMb).apply()
+        _smartLoudnessGainMb.value = gainMb
+    }
+
     /**
      * Retrieves saved sort criteria for a given playlist (or default screen key).
      * Defaults to A-Z (TITLE_ASC) for all playlists as requested by user.

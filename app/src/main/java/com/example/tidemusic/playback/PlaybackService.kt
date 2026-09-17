@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -103,6 +104,39 @@ class PlaybackService : MediaBrowserServiceCompat() {
     }
 
     private var volumeProvider: VolumeProviderCompat? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+
+    private fun applySmartLoudness() {
+        try {
+            val exo = player as? androidx.media3.exoplayer.ExoPlayer ?: return
+            val sId = exo.audioSessionId
+            if (sId <= 0) return
+
+            val settings = ServiceLocator.settingsManager
+            val isEnabled = settings.isSmartLoudnessEnabled.value
+            val gainMb = settings.smartLoudnessGainMb.value
+
+            if (!isEnabled) {
+                try { loudnessEnhancer?.enabled = false } catch (_: Throwable) {}
+                return
+            }
+
+            if (loudnessEnhancer == null) {
+                loudnessEnhancer = LoudnessEnhancer(sId).apply {
+                    setTargetGain(gainMb)
+                    enabled = true
+                }
+                Log.i(TAG, "Smart Volume Extra (LoudnessEnhancer) active on session $sId (+${gainMb / 100.0} dB)")
+            } else {
+                loudnessEnhancer?.apply {
+                    setTargetGain(gainMb)
+                    enabled = true
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error applying Smart Volume LoudnessEnhancer", e)
+        }
+    }
 
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -146,6 +180,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 exo.addListener(object : Player.Listener {
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         syncPlaybackAndNotification()
+                        applySmartLoudness()
                         val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: -1L
                         if (mediaId > 0L) {
                             serviceScope.launch(Dispatchers.IO) {
@@ -160,10 +195,12 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         syncPlaybackAndNotification()
+                        applySmartLoudness()
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         syncPlaybackAndNotification()
+                        applySmartLoudness()
                     }
 
                     override fun onPositionDiscontinuity(
@@ -179,6 +216,18 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     }
                 })
             }
+
+        // Live observation of Smart Volume Extra settings
+        serviceScope.launch {
+            ServiceLocator.settingsManager.isSmartLoudnessEnabled.collect {
+                applySmartLoudness()
+            }
+        }
+        serviceScope.launch {
+            ServiceLocator.settingsManager.smartLoudnessGainMb.collect {
+                applySmartLoudness()
+            }
+        }
 
         restoreState()
 
@@ -703,6 +752,10 @@ class PlaybackService : MediaBrowserServiceCompat() {
             Log.e(TAG, "Error releasing mediaSession", e)
         }
         playbackController.detachPlayer()
+        try {
+            loudnessEnhancer?.release()
+            loudnessEnhancer = null
+        } catch (_: Throwable) {}
         player?.release()
         player = null
         super.onDestroy()

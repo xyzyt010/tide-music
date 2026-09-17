@@ -104,6 +104,27 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
 
+            // ── Audio & Loudness ──────────────────────────────────
+            Text(
+                "Audio & Loudness",
+                style = MaterialTheme.typography.titleSmall,
+                color = TideColors.textSecondary,
+                modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+            )
+            val smartLoudnessEnabled by ServiceLocator.settingsManager.isSmartLoudnessEnabled.collectAsState()
+            SettingsRow(
+                icon = Icons.Rounded.MusicNote,
+                title = "Smart Volume Extra",
+                subtitle = "Hardware-accelerated loudness extension (+3.0 dB clean DSP boost matching YouTube)",
+                trailing = {
+                    Switch(
+                        checked = smartLoudnessEnabled,
+                        onCheckedChange = { ServiceLocator.settingsManager.setSmartLoudnessEnabled(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
+                    )
+                },
+            )
+
             // ── Background Execution ─────────────────────
             val context = androidx.compose.ui.platform.LocalContext.current
             Text(
