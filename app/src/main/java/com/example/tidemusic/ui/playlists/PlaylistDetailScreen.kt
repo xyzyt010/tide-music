@@ -143,11 +143,7 @@ class PlaylistDetailViewModel(
     }
 
     fun shuffleAll() {
-        if (_songs.value.isNotEmpty()) {
-            val shuffled = _songs.value.shuffled(java.security.SecureRandom())
-            playback.setQueue(shuffled, startIndex = 0)
-            playback.setShuffleMode(true)
-        }
+        playback.shuffleAll(_songs.value)
     }
 
     fun playCustomList(list: List<Song>, startIndex: Int = 0) {
@@ -158,11 +154,7 @@ class PlaylistDetailViewModel(
     }
 
     fun shuffleCustomList(list: List<Song>) {
-        if (list.isNotEmpty()) {
-            val shuffled = list.shuffled(java.security.SecureRandom())
-            playback.setQueue(shuffled, startIndex = 0)
-            playback.setShuffleMode(true)
-        }
+        playback.shuffleAll(list)
     }
 }
 

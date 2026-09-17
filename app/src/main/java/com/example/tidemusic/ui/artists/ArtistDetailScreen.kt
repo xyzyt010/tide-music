@@ -99,11 +99,7 @@ class ArtistDetailViewModel(
     }
 
     fun shuffleAll() {
-        if (_tracks.value.isNotEmpty()) {
-            val shuffled = _tracks.value.shuffled(java.security.SecureRandom())
-            playback.setQueue(shuffled, startIndex = 0)
-            playback.setShuffleMode(true)
-        }
+        playback.shuffleAll(_tracks.value)
     }
 }
 

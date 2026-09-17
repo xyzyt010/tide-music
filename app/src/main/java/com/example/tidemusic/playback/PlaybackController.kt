@@ -36,9 +36,54 @@ class PlaybackController constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val secureRandom = java.security.SecureRandom()
+    private val recentPlayedSongIds = ArrayDeque<Long>()
     private var lastPlayedMediaId: Long? = null
     private var saveStateJob: kotlinx.coroutines.Job? = null
     private var player: Player? = null
+
+    private fun recordRecentPlayed(id: Long) {
+        synchronized(recentPlayedSongIds) {
+            recentPlayedSongIds.remove(id)
+            recentPlayedSongIds.addLast(id)
+            while (recentPlayedSongIds.size > 50) {
+                recentPlayedSongIds.removeFirst()
+            }
+        }
+    }
+
+    private fun getRecentIndicesForPlayer(p: Player): Set<Int> {
+        val count = p.mediaItemCount
+        if (count <= 1) return emptySet()
+        val set = HashSet<Int>()
+        val recentSnapshot = synchronized(recentPlayedSongIds) { recentPlayedSongIds.toList() }
+        val windowSize = (count * 0.5f).toInt().coerceIn(1, 30)
+        val recentSet = recentSnapshot.takeLast(windowSize).toSet()
+        for (i in 0 until count) {
+            val mId = p.getMediaItemAt(i).mediaId.toLongOrNull()
+            if (mId != null && recentSet.contains(mId)) {
+                set.add(i)
+            }
+        }
+        return set
+    }
+
+    private fun applyHardwareEntropyShuffle(
+        p: Player,
+        fixedFirstIndex: Int? = null,
+        recentIndices: Set<Int> = emptySet()
+    ): androidx.media3.exoplayer.source.ShuffleOrder {
+        val exo = p as? androidx.media3.exoplayer.ExoPlayer
+        val count = p.mediaItemCount
+        val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+        val order = HardwareEntropyShuffle.createShuffleOrder(
+            count = count,
+            fixedFirstIndex = fixedFirstIndex,
+            recentIndices = recentIndices,
+            seed = seed
+        )
+        exo?.setShuffleOrder(order)
+        return order
+    }
 
     val audioSessionId: Int
         get() = (player as? androidx.media3.exoplayer.ExoPlayer)?.audioSessionId ?: 0
@@ -240,18 +285,96 @@ class PlaybackController constructor(
             p.clearMediaItems()
             p.setMediaItems(mediaItems, safeIndex, 0L)
             if (p.shuffleModeEnabled && mediaItems.size > 1) {
-                (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(
-                    androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
-                        mediaItems.size,
-                        secureRandom.nextLong()
-                    )
+                val recentSnapshot = synchronized(recentPlayedSongIds) { recentPlayedSongIds.toSet() }
+                val recentIndices = songs.indices.filter { recentSnapshot.contains(songs[it].id) }.toSet()
+                val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+                val order = HardwareEntropyShuffle.createShuffleOrder(
+                    count = mediaItems.size,
+                    fixedFirstIndex = safeIndex,
+                    recentIndices = recentIndices,
+                    seed = seed
                 )
+                (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(order)
             }
             p.prepare()
             p.playWhenReady = true
             savePlaybackState()
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error setting queue", e)
+        }
+    }
+
+    /**
+     * Shuffles all [songs] using hardware-entropy sampling (battery, voltage, temperature, clocks, memory).
+     * If [startingSongId] is provided, that song begins playback first; otherwise, a random starting track
+     * is chosen from unplayed songs (preventing the "always starts at track 1" issue).
+     */
+    fun shuffleAll(songs: List<Song>, startingSongId: Long? = null) {
+        ensureServiceStarted()
+        val p = player ?: return
+        try {
+            if (songs.isEmpty()) {
+                p.clearMediaItems()
+                savePlaybackState()
+                return
+            }
+            val mediaItems = songs.map(::mediaItemFor)
+            val count = mediaItems.size
+
+            val chosenIndex: Int
+            if (startingSongId != null) {
+                val idx = songs.indexOfFirst { it.id == startingSongId }
+                chosenIndex = if (idx >= 0) idx else 0
+            } else if (count > 1) {
+                // Pick a random starting song from songs not played recently
+                val recentSnapshot = synchronized(recentPlayedSongIds) { recentPlayedSongIds.toSet() }
+                val freshIndices = songs.indices.filter { !recentSnapshot.contains(songs[it].id) }
+                val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+                val rng = java.util.Random(seed)
+                chosenIndex = if (freshIndices.isNotEmpty()) {
+                    freshIndices[rng.nextInt(freshIndices.size)]
+                } else {
+                    rng.nextInt(count)
+                }
+            } else {
+                chosenIndex = 0
+            }
+
+            // Pre-decode artwork bitmap for chosen song
+            val targetSong = songs.getOrNull(chosenIndex)
+            if (targetSong != null) {
+                ioScope.launch {
+                    SongArtworkCache.getOrDecode(
+                        context,
+                        targetSong.id,
+                        targetSong.filePath,
+                        targetSong.uri
+                    )
+                }
+            }
+
+            p.clearMediaItems()
+            p.setMediaItems(mediaItems, chosenIndex, 0L)
+
+            if (count > 1) {
+                val recentSnapshot = synchronized(recentPlayedSongIds) { recentPlayedSongIds.toSet() }
+                val recentIndices = songs.indices.filter { recentSnapshot.contains(songs[it].id) }.toSet()
+                val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+                val order = HardwareEntropyShuffle.createShuffleOrder(
+                    count = count,
+                    fixedFirstIndex = chosenIndex,
+                    recentIndices = recentIndices,
+                    seed = seed
+                )
+                (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(order)
+            }
+
+            p.shuffleModeEnabled = true
+            p.prepare()
+            p.playWhenReady = true
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error in shuffleAll", e)
         }
     }
 
@@ -323,13 +446,11 @@ class PlaybackController constructor(
                 if (p.hasNextMediaItem()) {
                     p.seekToNextMediaItem()
                 } else if (p.shuffleModeEnabled && p.mediaItemCount > 1) {
-                    (p as? androidx.media3.exoplayer.ExoPlayer)?.setShuffleOrder(
-                        androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(
-                            p.mediaItemCount,
-                            secureRandom.nextLong()
-                        )
-                    )
-                    p.seekTo(0, 0L)
+                    // Reached end of current shuffle cycle: generate a brand new hardware-entropy cycle
+                    val recent = getRecentIndicesForPlayer(p)
+                    val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, recentIndices = recent)
+                    val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                    p.seekTo(targetIndex, 0L)
                 } else {
                     p.seekTo(0, 0L)
                 }
@@ -403,6 +524,11 @@ class PlaybackController constructor(
     fun setShuffleMode(enabled: Boolean) {
         val p = player ?: return
         try {
+            if (enabled && p.mediaItemCount > 1) {
+                val curIdx = p.currentMediaItemIndex.coerceIn(0, p.mediaItemCount - 1)
+                val recent = getRecentIndicesForPlayer(p)
+                applyHardwareEntropyShuffle(p, fixedFirstIndex = curIdx, recentIndices = recent)
+            }
             p.shuffleModeEnabled = enabled
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error setting shuffle mode", e)
@@ -541,14 +667,8 @@ class PlaybackController constructor(
             _currentPlayingSongId.value = id
             _isPlayingState.value = player?.isPlaying == true
             val p = player
-            // Prevent back-to-back immediate repeat in shuffle mode if there are multiple songs
-            if (id != null && p != null && p.shuffleModeEnabled && p.mediaItemCount > 1 && id == lastPlayedMediaId) {
-                if (p.hasNextMediaItem()) {
-                    p.seekToNextMediaItem()
-                    return
-                }
-            }
             if (id != null) {
+                recordRecentPlayed(id)
                 lastPlayedMediaId = id
                 scope.launch {
                     try {
