@@ -10,8 +10,10 @@
     <string name="section_search">Search</string>
     <string name="section_download">Download</string>
     <string name="section_artists">Artists</string>
+    <string name="section_voice">Voice</string>
 
     <!-- Overflow menu -->
+    <string name="menu_voice">Voice Commands</string>
     <string name="menu_equalizer">Equalizer</string>
     <string name="menu_scan_library">Scan Library</string>
     <string name="menu_settings">Settings</string>

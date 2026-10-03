@@ -1,4 +1,4 @@
-﻿# 🎵 Tide Music
+# 🎵 Tide Music
 
 <p align="center">
   <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="Tide Music Logo" width="110" height="110" style="border-radius: 24px;" />
@@ -32,9 +32,15 @@
 * **Notification & Lock Screen Controls**: System media controls with real-time seek bar, album art rendering, and dynamic shuffle toggles.
 
 ### 🎲 Hardware-Entropy Smart Shuffle
-* **Dynamic Hardware Entropy**: Utilizes real-time device hardware signals (thermal sensors, battery voltage fluctuations, and nanosecond monotonic clocks) mixed with cryptographic SHA-256 to ensure every shuffle sequence is truly unpredictable.
-* **Anti-Repeat History Protection**: Remembers recently played tracks and partitions them away from upcoming cycles, completely eliminating repetitive playback.
+* **Dynamic Hardware Entropy**: Utilizes real-time device hardware signals (battery voltage variations, thermal states, and nanosecond monotonic clocks) mixed with cryptographic SHA-256 to ensure every shuffle sequence is truly unpredictable.
+* **Zero-Repeat Permutation Deck**: Strict Fisher-Yates permutation cycles guarantee that every single song in your library plays exactly once before any track repeats, with seamless boundary reshuffling.
+* **Persistent Shuffle State**: Shuffle state and queue ordering persist reliably across pauses, playback restarts, and service recreation.
 * **Arbitrary Random Start**: Tapping "Shuffle All" begins on an unpredictable track from your library rather than defaulting to track 1.
+
+### 🎙️ Command-Based Voice Playback
+* **Hands-Free Wake Word Engine**: Lightweight on-device acoustic cadence & energy VAD detector ("*Hey Jarvis*") for effortless hands-free activation.
+* **Instant Speech Recognition**: Real-time voice transcription with dynamic glowing audio visualizer and interactive mic centerpiece.
+* **Smart Decision & Fuzzy Match Engine**: Natural language command classifier (*"play the paused song"*, *"pause"*, *"next"*, *"shuffle"*, *"volume"*) coupled with multi-stage fuzzy title matching (e.g. *"play the winner takes it all"*) against your local library.
 
 ### 📜 Synced Dual-Mode Lyrics
 * **Fluid Auto-Scroll**: Time-synced LRC lyric engine that smoothly follows audio playback with spring physics.

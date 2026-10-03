@@ -178,9 +178,22 @@ class PlaybackService : MediaBrowserServiceCompat() {
             .build().also { exo ->
                 playbackController.attachPlayer(exo)
                 exo.addListener(object : Player.Listener {
+                    override fun onEvents(player: Player, events: Player.Events) {
+                        if (events.containsAny(
+                                Player.EVENT_IS_PLAYING_CHANGED,
+                                Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                                Player.EVENT_PLAYBACK_STATE_CHANGED,
+                                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                                Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
+                                Player.EVENT_REPEAT_MODE_CHANGED
+                            )
+                        ) {
+                            syncPlaybackAndNotification()
+                            applySmartLoudness()
+                        }
+                    }
+
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        syncPlaybackAndNotification()
-                        applySmartLoudness()
                         val mediaId = mediaItem?.mediaId?.toLongOrNull() ?: -1L
                         if (mediaId > 0L) {
                             serviceScope.launch(Dispatchers.IO) {
@@ -193,25 +206,11 @@ class PlaybackService : MediaBrowserServiceCompat() {
                         }
                     }
 
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        syncPlaybackAndNotification()
-                        applySmartLoudness()
-                    }
-
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        syncPlaybackAndNotification()
-                        applySmartLoudness()
-                    }
-
                     override fun onPositionDiscontinuity(
                         oldPosition: Player.PositionInfo,
                         newPosition: Player.PositionInfo,
                         reason: Int
                     ) {
-                        syncPlaybackAndNotification()
-                    }
-
-                    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                         syncPlaybackAndNotification()
                     }
                 })
@@ -322,23 +321,51 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
     private inner class MediaSessionCallback : MediaSessionCompat.Callback() {
         override fun onPlay() {
-            player?.play()
+            val p = player ?: return
+            if (p.playbackState == Player.STATE_IDLE) {
+                p.prepare()
+            } else if (p.playbackState == Player.STATE_ENDED) {
+                p.seekTo(p.currentMediaItemIndex, 0L)
+                p.prepare()
+            }
+            p.play()
+            syncPlaybackAndNotification()
         }
 
         override fun onPause() {
             player?.pause()
+            syncPlaybackAndNotification()
         }
 
         override fun onSkipToNext() {
             playbackController.next()
+            syncPlaybackAndNotification()
         }
 
         override fun onSkipToPrevious() {
             playbackController.previous()
+            syncPlaybackAndNotification()
         }
 
         override fun onSeekTo(pos: Long) {
             player?.seekTo(pos)
+            syncPlaybackAndNotification()
+        }
+
+        override fun onSetShuffleMode(shuffleMode: Int) {
+            val enabled = shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
+            playbackController.setShuffleMode(enabled)
+            syncPlaybackAndNotification()
+        }
+
+        override fun onSetRepeatMode(repeatMode: Int) {
+            val exoRepeat = when (repeatMode) {
+                PlaybackStateCompat.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ONE
+                PlaybackStateCompat.REPEAT_MODE_NONE -> Player.REPEAT_MODE_OFF
+                else -> Player.REPEAT_MODE_ALL
+            }
+            playbackController.repeatMode = exoRepeat
+            syncPlaybackAndNotification()
         }
 
         override fun onSkipToQueueItem(id: Long) {
@@ -347,6 +374,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
             if (index in 0 until p.mediaItemCount) {
                 p.seekTo(index, 0L)
                 if (!p.isPlaying) p.play()
+                syncPlaybackAndNotification()
             }
         }
 
@@ -359,8 +387,14 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
         override fun onCustomAction(action: String?, extras: Bundle?) {
             when (action) {
-                ACTION_TOGGLE_FAVORITE -> playbackController.toggleFavoriteCurrentSong()
-                ACTION_TOGGLE_SHUFFLE -> playbackController.toggleShuffle()
+                ACTION_TOGGLE_FAVORITE -> {
+                    playbackController.toggleFavoriteCurrentSong()
+                    syncPlaybackAndNotification()
+                }
+                ACTION_TOGGLE_SHUFFLE -> {
+                    playbackController.toggleShuffle()
+                    syncPlaybackAndNotification()
+                }
                 ACTION_CLOSE -> {
                     saveState()
                     player?.stop()
@@ -451,8 +485,12 @@ class PlaybackService : MediaBrowserServiceCompat() {
     private fun publishPlaybackState() {
         try {
             val p = player ?: return
-            val isPlaying = p.isPlaying
-            val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+            val isPlaying = p.isPlaying || (p.playWhenReady && p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED)
+            val state = when {
+                p.playbackState == Player.STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
+                isPlaying -> PlaybackStateCompat.STATE_PLAYING
+                else -> PlaybackStateCompat.STATE_PAUSED
+            }
             val speed = if (isPlaying) p.playbackParameters.speed else 0f
             val position = p.currentPosition.coerceAtLeast(0L)
 
@@ -461,6 +499,8 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 .setState(state, position, speed, SystemClock.elapsedRealtime())
 
             mediaSession.setPlaybackState(stateBuilder.build())
+            mediaSession.setShuffleMode(if (p.shuffleModeEnabled) PlaybackStateCompat.SHUFFLE_MODE_ALL else PlaybackStateCompat.SHUFFLE_MODE_NONE)
+            mediaSession.setRepeatMode(if (p.repeatMode == Player.REPEAT_MODE_ONE) PlaybackStateCompat.REPEAT_MODE_ONE else PlaybackStateCompat.REPEAT_MODE_ALL)
             mediaSession.isActive = true
         } catch (e: Throwable) {
             Log.e(TAG, "Error publishing playback state", e)
@@ -507,7 +547,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
     fun buildNotification(): Notification {
         val p = player
-        val isPlaying = p?.isPlaying == true
+        val isPlaying = p != null && (p.isPlaying || (p.playWhenReady && p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED))
         val currentItem = p?.currentMediaItem
 
         val songId = currentItem?.mediaId?.toLongOrNull() ?: 0L
@@ -593,7 +633,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
             updateMetadata()
             publishQueue()
             val notif = buildNotification()
-            val isPlaying = player?.isPlaying == true
+            val isPlaying = player != null && (player!!.isPlaying || (player!!.playWhenReady && player!!.playbackState != Player.STATE_IDLE && player!!.playbackState != Player.STATE_ENDED))
             if (isPlaying) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
@@ -657,12 +697,21 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     val queueSongs = ids.mapNotNull { allSongs[it] }
                     val savedIndex = prefs.getInt("queue_index", 0)
                     val savedPosition = prefs.getLong("queue_position", 0L)
+                    val savedShuffle = prefs.getBoolean("shuffle_mode_enabled", false)
+                    val savedRepeat = prefs.getInt("repeat_mode", Player.REPEAT_MODE_ALL)
 
                     withContext(Dispatchers.Main) {
                         val mediaItems = queueSongs.map { playbackController.mediaItemFor(it) }
                         if (mediaItems.isNotEmpty()) {
-                            player?.setMediaItems(mediaItems, savedIndex.coerceIn(0, mediaItems.lastIndex), savedPosition)
+                            val targetIndex = savedIndex.coerceIn(0, mediaItems.lastIndex)
+                            player?.setMediaItems(mediaItems, targetIndex, savedPosition)
+                            if (savedShuffle && mediaItems.size > 1) {
+                                playbackController.applyHardwareEntropyShuffle(player!!, fixedFirstIndex = targetIndex)
+                            }
+                            player?.shuffleModeEnabled = savedShuffle
+                            player?.repeatMode = savedRepeat
                             player?.prepare()
+                            syncPlaybackAndNotification()
                         }
                     }
                 }
@@ -686,6 +735,8 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 .putString("queue_ids", ids.joinToString(","))
                 .putInt("queue_index", p.currentMediaItemIndex)
                 .putLong("queue_position", p.currentPosition)
+                .putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
+                .putInt("repeat_mode", p.repeatMode)
                 .apply()
         } catch (e: Throwable) {
             Log.e(TAG, "Error saving state", e)
@@ -698,23 +749,28 @@ class PlaybackService : MediaBrowserServiceCompat() {
 
             when (intent.action) {
                 ACTION_PLAY_PAUSE -> {
-                    playbackController.playPause()
+                    playbackController.togglePlayPause()
+                    syncPlaybackAndNotification()
                     return START_NOT_STICKY
                 }
                 ACTION_PREVIOUS -> {
                     playbackController.previous()
+                    syncPlaybackAndNotification()
                     return START_NOT_STICKY
                 }
                 ACTION_NEXT -> {
                     playbackController.next()
+                    syncPlaybackAndNotification()
                     return START_NOT_STICKY
                 }
                 ACTION_TOGGLE_FAVORITE -> {
                     playbackController.toggleFavoriteCurrentSong()
+                    syncPlaybackAndNotification()
                     return START_NOT_STICKY
                 }
                 ACTION_TOGGLE_SHUFFLE -> {
                     playbackController.toggleShuffle()
+                    syncPlaybackAndNotification()
                     return START_NOT_STICKY
                 }
                 ACTION_CLOSE -> {

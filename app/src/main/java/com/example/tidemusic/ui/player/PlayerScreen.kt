@@ -264,8 +264,13 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(controller?.isPlaying ?: false) }
     var position by remember { mutableStateOf(controller?.currentPosition ?: 0L) }
     var duration by remember { mutableStateOf(controller?.duration ?: 0L) }
-    var shuffle by remember { mutableStateOf(controller?.shuffleModeEnabled ?: false) }
+    val shuffleEnabledFromController by ServiceLocator.playbackController.isShuffleEnabledState.collectAsState()
+    var shuffle by remember { mutableStateOf(shuffleEnabledFromController) }
     var repeatMode by remember { mutableStateOf(controller?.repeatMode ?: ServiceLocator.playbackController.repeatMode) }
+
+    LaunchedEffect(shuffleEnabledFromController) {
+        shuffle = shuffleEnabledFromController
+    }
 
     LaunchedEffect(controller) {
         controller?.run {
@@ -626,7 +631,6 @@ fun PlayerScreen(
                         onClick = {
                             val next = !shuffle
                             shuffle = next
-                            controller?.shuffleModeEnabled = next
                             ServiceLocator.playbackController.setShuffleMode(next)
                             shuffleToast = if (next) "Shuffle mode is on" else "Shuffle mode is off"
                         },

@@ -1,4 +1,4 @@
-﻿package com.example.tidemusic.playback
+package com.example.tidemusic.playback
 
 import android.content.Context
 import android.content.Intent
@@ -75,64 +75,59 @@ object HardwareEntropyShuffle {
     }
 
     /**
-     * Generates a non-repeating shuffle permutation for [count] items.
+     * Generates a strictly non-repeating shuffle permutation for [count] items.
+     * Every index from 0 until [count] appears EXACTLY ONCE (mathematically zero repetitions).
      *
      * @param count Total number of items in the queue
      * @param fixedFirstIndex Optional index that MUST be placed at the very start of the shuffle order
      *                        (e.g., the song currently playing, or the specific song clicked by user)
-     * @param recentIndices Set of song indices that played recently and should be pushed to the
-     *                      back half of the shuffle queue to avoid repetitions
-     * @param seed The hardware-derived 64-bit seed
+     * @param avoidFirstIndex Optional index to avoid placing at index 0 (e.g., the last played song from
+     *                        the previous shuffle cycle to avoid back-to-back repeats across cycle boundaries)
+     * @param seed The hardware-derived 64-bit seed physically sampled from device hardware
      */
     fun buildPermutation(
         count: Int,
         fixedFirstIndex: Int? = null,
-        recentIndices: Set<Int> = emptySet(),
+        avoidFirstIndex: Int? = null,
         seed: Long
     ): IntArray {
         if (count <= 1) return IntArray(count) { it }
 
         val rng = java.util.Random(seed)
 
-        // Collect all other indices to shuffle
-        val remainingIndices = ArrayList<Int>(count)
+        // Build list of all indices
+        val allIndices = ArrayList<Int>(count)
         for (i in 0 until count) {
-            if (fixedFirstIndex == null || i != fixedFirstIndex) {
-                remainingIndices.add(i)
-            }
+            allIndices.add(i)
         }
-
-        // Partition remaining items into "fresh" vs "recently played"
-        val fresh = ArrayList<Int>()
-        val recent = ArrayList<Int>()
-        for (idx in remainingIndices) {
-            if (recentIndices.contains(idx)) {
-                recent.add(idx)
-            } else {
-                fresh.add(idx)
-            }
-        }
-
-        // Fisher-Yates shuffle each partition with the hardware-derived PRNG
-        fisherYates(fresh, rng)
-        fisherYates(recent, rng)
 
         val result = IntArray(count)
-        var writePos = 0
 
-        // If a fixed starting index was requested, it goes first
         if (fixedFirstIndex != null && fixedFirstIndex in 0 until count) {
-            result[writePos++] = fixedFirstIndex
-        }
+            // Song at fixedFirstIndex is explicitly placed first
+            result[0] = fixedFirstIndex
+            allIndices.remove(fixedFirstIndex)
 
-        // Fresh unplayed items play next
-        for (item in fresh) {
-            result[writePos++] = item
-        }
+            // Uniformly shuffle all remaining (count - 1) songs using Fisher-Yates
+            fisherYates(allIndices, rng)
+            for (i in allIndices.indices) {
+                result[i + 1] = allIndices[i]
+            }
+        } else {
+            // Full uniform Fisher-Yates shuffle of all songs
+            fisherYates(allIndices, rng)
 
-        // Recently played items play last, preventing repeat loops
-        for (item in recent) {
-            result[writePos++] = item
+            // If the first song happens to match avoidFirstIndex (and count > 1), swap it with another index
+            if (avoidFirstIndex != null && allIndices.isNotEmpty() && allIndices[0] == avoidFirstIndex) {
+                val swapTarget = 1 + rng.nextInt(allIndices.size - 1)
+                val temp = allIndices[0]
+                allIndices[0] = allIndices[swapTarget]
+                allIndices[swapTarget] = temp
+            }
+
+            for (i in allIndices.indices) {
+                result[i] = allIndices[i]
+            }
         }
 
         return result
@@ -153,10 +148,10 @@ object HardwareEntropyShuffle {
     fun createShuffleOrder(
         count: Int,
         fixedFirstIndex: Int? = null,
-        recentIndices: Set<Int> = emptySet(),
+        avoidFirstIndex: Int? = null,
         seed: Long
     ): ShuffleOrder {
-        val perm = buildPermutation(count, fixedFirstIndex, recentIndices, seed)
+        val perm = buildPermutation(count, fixedFirstIndex, avoidFirstIndex, seed)
         return ShuffleOrder.DefaultShuffleOrder(perm, seed)
     }
 }

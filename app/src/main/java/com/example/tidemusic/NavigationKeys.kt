@@ -18,6 +18,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object Settings : NavKey
 @Serializable data object HelpInfo : NavKey
 @Serializable data object SleepTimer : NavKey
+@Serializable data object VoiceCommand : NavKey
 @Serializable data class AlbumDetail(val albumId: Long) : NavKey
 @Serializable data class PlaylistDetail(val playlistId: Long, val playlistName: String, val isBuiltIn: Boolean) : NavKey
 @Serializable data class FolderDetail(val folderId: Long, val folderPath: String) : NavKey

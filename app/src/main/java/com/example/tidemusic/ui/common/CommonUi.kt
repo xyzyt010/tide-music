@@ -514,10 +514,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                     }
 
                     // Main playback buttons
-                    var shuffleEnabled by remember { mutableStateOf(controller?.shuffleModeEnabled ?: false) }
-                    LaunchedEffect(controller) {
-                        shuffleEnabled = controller?.shuffleModeEnabled ?: false
-                    }
+                    val shuffleEnabled by com.example.tidemusic.di.ServiceLocator.playbackController.isShuffleEnabledState.collectAsState()
 
                     IconButton(
                         onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
@@ -554,9 +551,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                     }
                     IconButton(
                         onClick = {
-                            val next = !shuffleEnabled
-                            shuffleEnabled = next
-                            com.example.tidemusic.di.ServiceLocator.playbackController.setShuffleMode(next)
+                            com.example.tidemusic.di.ServiceLocator.playbackController.setShuffleMode(!shuffleEnabled)
                         },
                         modifier = Modifier.size(32.dp),
                     ) {

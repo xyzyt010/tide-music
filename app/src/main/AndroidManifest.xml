@@ -5,6 +5,8 @@
     <!-- Audio access: READ_MEDIA_AUDIO on API 33+, READ_EXTERNAL_STORAGE below 33. -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Voice Command / STT / Wake Word microphone input -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required so the media notification can be shown on API 33+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Foreground service of type media playback & dataSync. -->
