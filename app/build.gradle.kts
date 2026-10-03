@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.tidemusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 31
-        versionName = "1.8.0"
+        versionCode = 32
+        versionName = "1.8.1"
         // youtubedl-android bundles native binaries; restrict to arm64-v8a and armeabi-v7a for physical Android devices to keep APK size ~125MB.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -60,6 +60,10 @@ android {
       aidl = false
       buildConfig = true
       shaders = false
+    }
+
+    androidResources {
+        noCompress += listOf("onnx", "onnx_data", "tflite")
     }
 
     packaging {
@@ -137,4 +141,10 @@ dependencies {
   // youtubedl-android — yt-dlp downloader (library + ffmpeg for --extract-audio)
   implementation("io.github.junkfood02.youtubedl-android:library:${libs.versions.youtubedl.get()}")
   implementation("io.github.junkfood02.youtubedl-android:ffmpeg:${libs.versions.youtubedl.get()}")
+
+  // AI Voice Stack: Vosk ASR, TenVAD JNA, ONNX Runtime, TFLite microWakeWord
+  implementation("com.alphacephei:vosk-android:0.3.75")
+  implementation("net.java.dev.jna:jna:5.14.0@aar")
+  implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
+  implementation("org.tensorflow:tensorflow-lite:2.16.1")
 }

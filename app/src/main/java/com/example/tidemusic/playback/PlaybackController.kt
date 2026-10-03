@@ -414,6 +414,26 @@ class PlaybackController constructor(
         }
     }
 
+    fun pause() {
+        val p = player ?: return
+        try {
+            if (p.isPlaying) {
+                p.pause()
+                savePlaybackState()
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error pausing playback", e)
+        }
+    }
+
+    fun playSong(song: Song) {
+        setQueue(listOf(song), 0)
+    }
+
+    fun toggleRepeat(): Int {
+        return cycleRepeat()
+    }
+
     fun next() {
         ensureServiceStarted()
         val p = player ?: return

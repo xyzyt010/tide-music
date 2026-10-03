@@ -29,6 +29,12 @@ class VoiceCommandViewModel(
     private val repository: LibraryRepository = ServiceLocator.repository,
 ) : ViewModel() {
 
+    private val _isInitializing = MutableStateFlow(true)
+    val isInitializing: StateFlow<Boolean> = _isInitializing.asStateFlow()
+
+    private val _hasPermission = MutableStateFlow(false)
+    val hasPermission: StateFlow<Boolean> = _hasPermission.asStateFlow()
+
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
 
@@ -53,99 +59,145 @@ class VoiceCommandViewModel(
     private val _audioRms = MutableStateFlow(0.0f)
     val audioRms: StateFlow<Float> = _audioRms.asStateFlow()
 
-    private val _statusMessage = MutableStateFlow("Ready. Say \"Hey Jarvis\" or tap the microphone.")
+    private val _isVadSpeechActive = MutableStateFlow(false)
+    val isVadSpeechActive: StateFlow<Boolean> = _isVadSpeechActive.asStateFlow()
+
+    private val _statusMessage = MutableStateFlow("Initializing TenVAD, microWakeWord, Vosk & Laya ONNX...")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
     private val _commandHistory = MutableStateFlow<List<CommandHistoryItem>>(emptyList())
     val commandHistory: StateFlow<List<CommandHistoryItem>> = _commandHistory.asStateFlow()
 
-    private var voiceRecognizer: VoiceRecognizer? = null
+    private var tenVad: TenVadDetector? = null
     private var wakeWordEngine: WakeWordEngine? = null
+    private var voskRecognizer: VoskSpeechRecognizer? = null
+    private var layaEngine: LayaDecisionEngine? = null
 
     init {
-        setupVoiceRecognizer()
-        setupWakeWordEngine()
+        initializeEngines()
     }
 
-    private fun setupVoiceRecognizer() {
-        voiceRecognizer = VoiceRecognizer(
-            context = context,
-            onReady = {
-                _isListening.value = true
-                _statusMessage.value = "Listening… Speak your command now."
-            },
-            onRmsChanged = { rms ->
-                // Map RMS dB (approx 0 - 60 dB) to normalized 0.0 - 1.0 for visualizer
-                val normalized = (rms / 60.0f).coerceIn(0.0f, 1.0f)
-                _audioRms.value = normalized
-            },
-            onPartialResult = { partial ->
-                _partialTranscript.value = partial
-            },
-            onFinalResult = { finalResult ->
-                _isListening.value = false
-                _transcript.value = finalResult
-                _partialTranscript.value = ""
-                processTranscript(finalResult)
-                // Resume wake word engine after STT finishes
-                if (_isWakeWordActive.value) {
+    private fun initializeEngines() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _statusMessage.value = "Loading TenVAD voice activity detector..."
+                val vad = TenVadDetector(hopSize = 256, threshold = 0.5f)
+                tenVad = vad
+
+                _statusMessage.value = "Loading microWakeWord neural model ('Hey Jarvis')..."
+                wakeWordEngine = WakeWordEngine(
+                    context = context,
+                    tenVad = vad,
+                    onWakeWordDetected = {
+                        viewModelScope.launch(Dispatchers.Main) {
+                            Log.i("VoiceCommandViewModel", "Wake word recognized via microWakeWord! Activating STT...")
+                            _statusMessage.value = "Wake word detected! Listening..."
+                            wakeWordEngine?.stop()
+                            startListening()
+                        }
+                    },
+                    onRmsChanged = { rms ->
+                        if (!_isListening.value) {
+                            _audioRms.value = rms
+                        }
+                    }
+                )
+
+                _statusMessage.value = "Preparing Vosk offline ASR & Laya Multilingual ONNX..."
+                val vosk = VoskSpeechRecognizer(
+                    context = context,
+                    tenVad = vad,
+                    onReady = {
+                        viewModelScope.launch(Dispatchers.Main) {
+                            _isListening.value = true
+                            _statusMessage.value = "Listening… Speak your command now."
+                        }
+                    },
+                    onRmsChanged = { rms ->
+                        _audioRms.value = rms
+                    },
+                    onVadStateChanged = { isSpeech, prob ->
+                        _isVadSpeechActive.value = isSpeech
+                    },
+                    onPartialResult = { partial ->
+                        viewModelScope.launch(Dispatchers.Main) {
+                            _partialTranscript.value = partial
+                        }
+                    },
+                    onFinalResult = { finalResult ->
+                        viewModelScope.launch(Dispatchers.Main) {
+                            _isListening.value = false
+                            _transcript.value = finalResult
+                            _partialTranscript.value = ""
+                            processTranscript(finalResult)
+                            if (_isWakeWordActive.value && _hasPermission.value) {
+                                wakeWordEngine?.start()
+                            }
+                        }
+                    },
+                    onError = { err ->
+                        viewModelScope.launch(Dispatchers.Main) {
+                            _isListening.value = false
+                            _audioRms.value = 0f
+                            _statusMessage.value = err
+                            if (_isWakeWordActive.value && _hasPermission.value) {
+                                wakeWordEngine?.start()
+                            }
+                        }
+                    },
+                    onListeningEnded = {
+                        viewModelScope.launch(Dispatchers.Main) {
+                            _isListening.value = false
+                            _audioRms.value = 0f
+                        }
+                    }
+                )
+                vosk.initialize()
+                voskRecognizer = vosk
+
+                val laya = LayaDecisionEngine(context)
+                laya.initialize()
+                layaEngine = laya
+
+                _isInitializing.value = false
+                _statusMessage.value = "Ready. Say \"Hey Jarvis\" or tap the microphone."
+                Log.i("VoiceCommandViewModel", "All voice AI engines initialized successfully")
+
+                // Start wake word engine only if mic permission is already granted
+                if (_hasPermission.value && _isWakeWordActive.value) {
                     wakeWordEngine?.start()
                 }
-            },
-            onError = { error ->
-                _isListening.value = false
-                _audioRms.value = 0f
-                _statusMessage.value = error
-                if (_isWakeWordActive.value) {
-                    wakeWordEngine?.start()
-                }
-            },
-            onListeningEnded = {
-                _isListening.value = false
-                _audioRms.value = 0f
+            } catch (e: Throwable) {
+                Log.e("VoiceCommandViewModel", "Failed to initialize AI engines: ${e.message}", e)
+                _isInitializing.value = false
+                _statusMessage.value = "Ready (using standard speech engine)."
             }
-        )
+        }
     }
 
-    private fun setupWakeWordEngine() {
-        wakeWordEngine = WakeWordEngine(
-            context = context,
-            onWakeWordDetected = {
-                viewModelScope.launch(Dispatchers.Main) {
-                    Log.i("VoiceCommandViewModel", "Wake word recognized! Activating STT…")
-                    _statusMessage.value = "Wake word detected! Listening…"
-                    // Pause wake word engine while active STT is listening
-                    wakeWordEngine?.stop()
-                    startListening()
-                }
-            },
-            onRmsChanged = { rms ->
-                if (!_isListening.value) {
-                    _audioRms.value = (rms / 65.0f).coerceIn(0.0f, 1.0f)
-                }
+    fun onPermissionGranted(granted: Boolean) {
+        _hasPermission.value = granted
+        if (granted) {
+            _statusMessage.value = "Ready. Say \"Hey Jarvis\" or tap the microphone."
+            if (_isWakeWordActive.value && !_isInitializing.value && !_isListening.value) {
+                wakeWordEngine?.start()
             }
-        )
-
-        if (_isWakeWordActive.value) {
-            wakeWordEngine?.start()
+        } else {
+            _statusMessage.value = "Microphone permission is required for voice commands."
+            wakeWordEngine?.stop()
         }
     }
 
     fun startListening() {
+        if (!_hasPermission.value) {
+            _statusMessage.value = "Grant microphone permission first."
+            return
+        }
         _partialTranscript.value = ""
         _audioRms.value = 0f
         _statusMessage.value = "Listening…"
         wakeWordEngine?.stop()
-        voiceRecognizer?.startListening()
-    }
-
-    fun stopListening() {
-        voiceRecognizer?.stopListening()
-        _isListening.value = false
-        _audioRms.value = 0f
-        if (_isWakeWordActive.value) {
-            wakeWordEngine?.start()
-        }
+        voskRecognizer?.startListening()
     }
 
     fun toggleListening() {
@@ -156,153 +208,165 @@ class VoiceCommandViewModel(
         }
     }
 
-    fun toggleWakeWord(enabled: Boolean) {
-        _isWakeWordActive.value = enabled
-        if (enabled) {
-            _statusMessage.value = "Wake word active. Say \"Hey Jarvis\" or click mic."
-            if (!_isListening.value) {
-                wakeWordEngine?.start()
-            }
-        } else {
-            _statusMessage.value = "Wake word disabled. Tap mic to speak."
-            wakeWordEngine?.stop()
+    fun stopListening() {
+        voskRecognizer?.stopListening()
+        _isListening.value = false
+        _audioRms.value = 0f
+        if (_isWakeWordActive.value && _hasPermission.value) {
+            wakeWordEngine?.start()
         }
     }
 
-    fun executeQuickCommand(commandText: String) {
-        _transcript.value = commandText
-        _partialTranscript.value = ""
-        processTranscript(commandText)
+    fun toggleWakeWord(active: Boolean) {
+        _isWakeWordActive.value = active
+        if (active && _hasPermission.value && !_isListening.value) {
+            wakeWordEngine?.start()
+            _statusMessage.value = "Wake word \"Hey Jarvis\" enabled."
+        } else {
+            wakeWordEngine?.stop()
+            _statusMessage.value = if (!active) "Wake word disabled. Tap mic to speak." else _statusMessage.value
+        }
     }
 
-    private fun processTranscript(transcriptText: String) {
+    fun executeQuickCommand(command: String) {
+        _transcript.value = command
+        processTranscript(command)
+    }
+
+    /**
+     * Executes recognized workflow strictly if the spoken intent is recognized.
+     */
+    private fun processTranscript(text: String) {
+        if (text.isBlank()) {
+            _statusMessage.value = "No speech detected. Tap mic to try again."
+            return
+        }
+
         viewModelScope.launch {
-            _statusMessage.value = "Processing command with decision model…"
-            val intent = VoiceDecisionModel.classifyIntent(transcriptText)
+            val allSongs: List<Song> = withContext(Dispatchers.IO) {
+                try {
+                    repository.observeAllSongs().first()
+                } catch (e: Exception) {
+                    emptyList<Song>()
+                }
+            }
+
+            // Run intent classification through Laya decision model
+            val decisionEngine = layaEngine
+            val (intent, confidence) = decisionEngine?.classifyIntent(text, allSongs)
+                ?: Pair(VoiceIntent.Unknown(text), 0f)
+
             _lastIntent.value = intent
+            _matchConfidence.value = confidence
 
             when (intent) {
                 is VoiceIntent.PlaySong -> {
-                    val allSongs = repository.observeAllSongs().first()
-                    val match = VoiceDecisionModel.matchBestSong(intent.query, allSongs)
+                    val (bestSong, matchScore) = decisionEngine?.matchBestSong(intent.query, allSongs) ?: Pair(null, 0f)
+                    _matchedSong.value = bestSong
+                    _matchConfidence.value = matchScore
 
-                    if (match != null) {
-                        _matchedSong.value = match.song
-                        _matchConfidence.value = match.score
-                        _statusMessage.value = "Playing: ${match.song.title} (${(match.score * 100).toInt()}% match)"
-
-                        // Queue and immediately play the matched song
-                        withContext(Dispatchers.Main) {
-                            playbackController.setQueue(listOf(match.song), 0)
+                    if (bestSong != null) {
+                        _statusMessage.value = "Playing \"${bestSong.title}\" by ${bestSong.artist}"
+                        executeWorkflow("Played \"${bestSong.title}\"") {
+                            playbackController.playSong(bestSong)
                         }
-
-                        addHistory(transcriptText, "Played \"${match.song.title}\" by ${match.song.artist}")
                     } else {
-                        _matchedSong.value = null
-                        _matchConfidence.value = 0f
-                        _statusMessage.value = "Could not find a song matching \"${intent.query}\" in your library."
-                        addHistory(transcriptText, "No matching song found for \"${intent.query}\"")
+                        _statusMessage.value = "Song \"${intent.query}\" not found in library."
+                        addHistory(text, "Song not found: ${intent.query}")
+                    }
+                }
+
+                is VoiceIntent.PlayCurrent -> {
+                    _statusMessage.value = "Resuming playback"
+                    executeWorkflow("Resumed playback") {
+                        playbackController.playPause()
                     }
                 }
 
                 is VoiceIntent.Pause -> {
-                    withContext(Dispatchers.Main) {
-                        if (playbackController.isPlaying) {
-                            playbackController.togglePlayPause()
-                        }
+                    _statusMessage.value = "Playback paused"
+                    executeWorkflow("Paused music") {
+                        playbackController.pause()
                     }
-                    _statusMessage.value = "Paused playback."
-                    addHistory(transcriptText, "Paused current song")
-                }
-
-                is VoiceIntent.PlayCurrent -> {
-                    withContext(Dispatchers.Main) {
-                        if (!playbackController.isPlaying) {
-                            playbackController.togglePlayPause()
-                        }
-                    }
-                    _statusMessage.value = "Resumed playback."
-                    addHistory(transcriptText, "Resumed playback")
                 }
 
                 is VoiceIntent.Next -> {
-                    withContext(Dispatchers.Main) {
+                    _statusMessage.value = "Skipping to next track"
+                    executeWorkflow("Skipped to next track") {
                         playbackController.next()
                     }
-                    _statusMessage.value = "Skipped to next track."
-                    addHistory(transcriptText, "Skipped to next song")
                 }
 
                 is VoiceIntent.Previous -> {
-                    withContext(Dispatchers.Main) {
+                    _statusMessage.value = "Returning to previous track"
+                    executeWorkflow("Previous track") {
                         playbackController.previous()
                     }
-                    _statusMessage.value = "Went back to previous track."
-                    addHistory(transcriptText, "Played previous track")
                 }
 
                 is VoiceIntent.ToggleShuffle -> {
-                    val nextShuffle = intent.enable ?: !playbackController.isShuffleEnabled
-                    withContext(Dispatchers.Main) {
-                        playbackController.setShuffleMode(nextShuffle)
+                    val enabled = playbackController.isShuffleEnabledState.value
+                    val newMode = !enabled
+                    _statusMessage.value = if (newMode) "Shuffle enabled (Hardware entropy)" else "Shuffle disabled"
+                    executeWorkflow(if (newMode) "Turned shuffle ON" else "Turned shuffle OFF") {
+                        playbackController.toggleShuffle()
                     }
-                    _statusMessage.value = if (nextShuffle) "Shuffle mode activated (Hardware entropy)." else "Sequential playback enabled."
-                    addHistory(transcriptText, if (nextShuffle) "Turned shuffle ON" else "Turned shuffle OFF")
-                }
-
-                is VoiceIntent.ToggleRepeat -> {
-                    val mode = intent.mode ?: androidx.media3.common.Player.REPEAT_MODE_ONE
-                    withContext(Dispatchers.Main) {
-                        playbackController.repeatMode = mode
-                    }
-                    _statusMessage.value = if (mode == androidx.media3.common.Player.REPEAT_MODE_ONE) "Repeating current song." else "Repeating queue."
-                    addHistory(transcriptText, "Set repeat mode")
-                }
-
-                is VoiceIntent.ToggleFavorite -> {
-                    withContext(Dispatchers.Main) {
-                        playbackController.toggleFavoriteCurrentSong()
-                    }
-                    _statusMessage.value = "Toggled favorite for current song."
-                    addHistory(transcriptText, "Toggled favorite")
                 }
 
                 is VoiceIntent.Volume -> {
-                    withContext(Dispatchers.Main) {
-                        try {
-                            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                            val direction = if (intent.delta > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-                        } catch (e: Throwable) {
-                            Log.e("VoiceCommandViewModel", "Error adjusting volume", e)
-                        }
+                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    if (audioManager != null) {
+                        val direction = if (intent.delta > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+                        _statusMessage.value = if (intent.delta > 0) "Volume increased" else "Volume decreased"
+                        addHistory(text, if (intent.delta > 0) "Increased volume" else "Decreased volume")
                     }
-                    _statusMessage.value = if (intent.delta > 0) "Volume increased." else "Volume decreased."
-                    addHistory(transcriptText, if (intent.delta > 0) "Turned volume up" else "Turned volume down")
+                }
+
+                is VoiceIntent.ToggleRepeat -> {
+                    executeWorkflow("Toggled repeat mode") {
+                        playbackController.toggleRepeat()
+                    }
+                }
+
+                is VoiceIntent.ToggleFavorite -> {
+                    _statusMessage.value = "Toggled favorite"
+                    addHistory(text, "Toggled favorite")
                 }
 
                 is VoiceIntent.Unknown -> {
-                    _statusMessage.value = "Could not understand command \"$transcriptText\". Try \"Play [song title]\" or \"Pause\"."
-                    addHistory(transcriptText, "Unrecognized command")
+                    _statusMessage.value = "Command not recognized: \"$text\""
+                    addHistory(text, "Unrecognized command")
                 }
             }
         }
     }
 
-    private fun addHistory(transcript: String, description: String) {
-        val current = _commandHistory.value.toMutableList()
-        current.add(0, CommandHistoryItem(transcript, description))
-        if (current.size > 15) {
-            current.removeAt(current.lastIndex)
+    private fun executeWorkflow(actionDesc: String, block: () -> Unit) {
+        try {
+            block()
+            addHistory(_transcript.value, actionDesc)
+        } catch (e: Throwable) {
+            Log.e("VoiceCommandViewModel", "Workflow execution error: ${e.message}", e)
+            _statusMessage.value = "Action error: ${e.message}"
         }
-        _commandHistory.value = current
+    }
+
+    private fun addHistory(spokenText: String, actionDesc: String) {
+        val newItem = CommandHistoryItem(
+            transcript = spokenText,
+            actionDescription = actionDesc
+        )
+        _commandHistory.value = listOf(newItem) + _commandHistory.value.take(19)
     }
 
     override fun onCleared() {
-        wakeWordEngine?.stop()
-        wakeWordEngine = null
-        voiceRecognizer?.stopListening()
-        voiceRecognizer = null
         super.onCleared()
+        wakeWordEngine?.stop()
+        wakeWordEngine?.close()
+        voskRecognizer?.stopListening()
+        voskRecognizer?.close()
+        tenVad?.close()
+        layaEngine?.close()
     }
 }

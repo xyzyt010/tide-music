@@ -104,19 +104,25 @@ fun VoiceCommandScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasMicPermission = granted
-        if (granted) {
-            viewModel.toggleWakeWord(true)
-        }
+        viewModel.onPermissionGranted(granted)
     }
 
     LaunchedEffect(Unit) {
-        if (!hasMicPermission) {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        hasMicPermission = granted
+        viewModel.onPermissionGranted(granted)
+        if (!granted) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
+    val isInitializing by viewModel.isInitializing.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val isWakeWordActive by viewModel.isWakeWordActive.collectAsState()
+    val isVadSpeechActive by viewModel.isVadSpeechActive.collectAsState()
     val transcript by viewModel.transcript.collectAsState()
     val partialTranscript by viewModel.partialTranscript.collectAsState()
     val lastIntent by viewModel.lastIntent.collectAsState()
@@ -127,7 +133,7 @@ fun VoiceCommandScreen(
     val history by viewModel.commandHistory.collectAsState()
 
     val animatedRms by animateFloatAsState(
-        targetValue = if (isListening) audioRms else 0f,
+        targetValue = if (isListening || isVadSpeechActive) audioRms else 0f,
         animationSpec = tween(durationMillis = 80, easing = LinearEasing),
         label = "rms_anim"
     )
@@ -238,6 +244,34 @@ fun VoiceCommandScreen(
             Spacer(Modifier.height(18.dp))
         }
 
+        // Initializing banner if AI models are unpacking/loading
+        if (isInitializing) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = TideColors.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, TideColors.accent.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = TideColors.accent
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TideColors.textPrimary
+                    )
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+        }
+
         // Centerpiece Interactive Audio Visualizer & Mic Button
         Box(
             modifier = Modifier
@@ -305,29 +339,61 @@ fun VoiceCommandScreen(
             }
         }
 
-        // Status Message Chip
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = TideColors.surface.copy(alpha = 0.8f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        // Status Row: TenVAD indicator + Engine Status
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (isListening) Color(0xFF00E676) else if (isWakeWordActive) TideColors.accent else Color.Gray)
-                )
+            if (isVadSpeechActive) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF00E676).copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00E676))
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = "TenVAD: Speech",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF00E676)
+                        )
+                    }
+                }
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = statusMessage,
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = TideColors.textPrimary,
-                    textAlign = TextAlign.Center
-                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = TideColors.surface.copy(alpha = 0.8f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (isListening) Color(0xFF00E676) else if (isWakeWordActive) TideColors.accent else Color.Gray)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                        color = TideColors.textPrimary,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
 
