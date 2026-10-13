@@ -499,7 +499,13 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 .setState(state, position, speed, SystemClock.elapsedRealtime())
 
             mediaSession.setPlaybackState(stateBuilder.build())
-            mediaSession.setShuffleMode(if (p.shuffleModeEnabled) PlaybackStateCompat.SHUFFLE_MODE_ALL else PlaybackStateCompat.SHUFFLE_MODE_NONE)
+            val shuffleMode = playbackController.shuffleModeState.value
+            val sessionShuffleMode = when (shuffleMode) {
+                PlaybackController.ShuffleMode.OFF -> PlaybackStateCompat.SHUFFLE_MODE_NONE
+                PlaybackController.ShuffleMode.QUEUE -> PlaybackStateCompat.SHUFFLE_MODE_GROUP
+                PlaybackController.ShuffleMode.ALL -> PlaybackStateCompat.SHUFFLE_MODE_ALL
+            }
+            mediaSession.setShuffleMode(sessionShuffleMode)
             mediaSession.setRepeatMode(if (p.repeatMode == Player.REPEAT_MODE_ONE) PlaybackStateCompat.REPEAT_MODE_ONE else PlaybackStateCompat.REPEAT_MODE_ALL)
             mediaSession.isActive = true
         } catch (e: Throwable) {
@@ -578,9 +584,12 @@ class PlaybackService : MediaBrowserServiceCompat() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val isShuffle = player?.shuffleModeEnabled == true
-        val shuffleIcon = if (isShuffle) R.drawable.ic_notif_shuffle_on else R.drawable.ic_notif_shuffle_off
-        val shuffleTitle = if (isShuffle) "Shuffle On" else "Shuffle Off"
+        val shuffleMode = playbackController.shuffleModeState.value
+        val (shuffleIcon, shuffleTitle) = when (shuffleMode) {
+            PlaybackController.ShuffleMode.OFF -> Pair(R.drawable.ic_notif_shuffle_off, "Shuffle Off")
+            PlaybackController.ShuffleMode.QUEUE -> Pair(R.drawable.ic_notif_shuffle_on, "Shuffle Playlist")
+            PlaybackController.ShuffleMode.ALL -> Pair(R.drawable.ic_notif_shuffle_all, "Shuffle All")
+        }
         val shuffleIntent = buildActionIntent(ACTION_TOGGLE_SHUFFLE)
 
         val playPauseIcon = if (isPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
@@ -697,7 +706,8 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     val queueSongs = ids.mapNotNull { allSongs[it] }
                     val savedIndex = prefs.getInt("queue_index", 0)
                     val savedPosition = prefs.getLong("queue_position", 0L)
-                    val savedShuffle = prefs.getBoolean("shuffle_mode_enabled", false)
+                    val savedShuffleInt = prefs.getInt("shuffle_mode_int", if (prefs.getBoolean("shuffle_mode_enabled", false)) 1 else 0)
+                    val savedShuffleMode = PlaybackController.ShuffleMode.fromValue(savedShuffleInt)
                     val savedRepeat = prefs.getInt("repeat_mode", Player.REPEAT_MODE_ALL)
 
                     withContext(Dispatchers.Main) {
@@ -705,11 +715,12 @@ class PlaybackService : MediaBrowserServiceCompat() {
                         if (mediaItems.isNotEmpty()) {
                             val targetIndex = savedIndex.coerceIn(0, mediaItems.lastIndex)
                             player?.setMediaItems(mediaItems, targetIndex, savedPosition)
-                            if (savedShuffle && mediaItems.size > 1) {
+                            if (savedShuffleMode != PlaybackController.ShuffleMode.OFF && mediaItems.size > 1) {
                                 playbackController.applyHardwareEntropyShuffle(player!!, fixedFirstIndex = targetIndex)
                             }
-                            player?.shuffleModeEnabled = savedShuffle
+                            player?.shuffleModeEnabled = savedShuffleMode != PlaybackController.ShuffleMode.OFF
                             player?.repeatMode = savedRepeat
+                            playbackController.setShuffleMode(savedShuffleMode)
                             player?.prepare()
                             syncPlaybackAndNotification()
                         }
@@ -725,19 +736,22 @@ class PlaybackService : MediaBrowserServiceCompat() {
         try {
             val p = player ?: return
             val count = p.mediaItemCount
+            if (count == 0) return // CRITICAL: NEVER overwrite saved queue with empty list
             val ids = mutableListOf<Long>()
             for (i in 0 until count) {
                 val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
                 if (id != null) ids.add(id)
             }
+            if (ids.isEmpty()) return
             val prefs = getSharedPreferences("playback_state", Context.MODE_PRIVATE)
             prefs.edit()
                 .putString("queue_ids", ids.joinToString(","))
                 .putInt("queue_index", p.currentMediaItemIndex)
                 .putLong("queue_position", p.currentPosition)
                 .putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
+                .putInt("shuffle_mode_int", playbackController.shuffleModeState.value.value)
                 .putInt("repeat_mode", p.repeatMode)
-                .apply()
+                .commit()
         } catch (e: Throwable) {
             Log.e(TAG, "Error saving state", e)
         }
@@ -790,14 +804,27 @@ class PlaybackService : MediaBrowserServiceCompat() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         saveState()
         val p = player
-        if (p == null || !p.playWhenReady || !p.isPlaying || p.mediaItemCount == 0) {
-            stopForegroundCompat(true)
-            stopSelf()
+        val isPlaying = p != null && (p.isPlaying || (p.playWhenReady && p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED))
+        if (isPlaying) {
+            Log.i(TAG, "App task removed while playing: maintaining active foreground service")
+            val notif = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            } else {
+                startForeground(NOTIFICATION_ID, notif)
+            }
+        } else {
+            if (p == null || p.mediaItemCount == 0) {
+                stopForegroundCompat(true)
+                stopSelf()
+            }
         }
     }
 
     override fun onDestroy() {
-        saveState()
+        if (player != null && player!!.mediaItemCount > 0) {
+            saveState()
+        }
         try {
             unregisterReceiver(volumeReceiver)
         } catch (_: Throwable) {}

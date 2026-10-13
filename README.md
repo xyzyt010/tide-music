@@ -37,11 +37,6 @@
 * **Persistent Shuffle State**: Shuffle state and queue ordering persist reliably across pauses, playback restarts, and service recreation.
 * **Arbitrary Random Start**: Tapping "Shuffle All" begins on an unpredictable track from your library rather than defaulting to track 1.
 
-### 🎙️ Command-Based Voice Playback
-* **Hands-Free Wake Word Engine**: Lightweight on-device acoustic cadence & energy VAD detector ("*Hey Jarvis*") for effortless hands-free activation.
-* **Instant Speech Recognition**: Real-time voice transcription with dynamic glowing audio visualizer and interactive mic centerpiece.
-* **Smart Decision & Fuzzy Match Engine**: Natural language command classifier (*"play the paused song"*, *"pause"*, *"next"*, *"shuffle"*, *"volume"*) coupled with multi-stage fuzzy title matching (e.g. *"play the winner takes it all"*) against your local library.
-
 ### 📜 Synced Dual-Mode Lyrics
 * **Fluid Auto-Scroll**: Time-synced LRC lyric engine that smoothly follows audio playback with spring physics.
 * **Interactive Gesture Interception**: Scroll manually without disrupting tracking, featuring an instant "Resume" chip.

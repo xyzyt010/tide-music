@@ -66,10 +66,17 @@ object SongArtworkCache {
         val y = (bitmap.height - size) / 2
         val square = Bitmap.createBitmap(bitmap, x, y, size, size)
         val targetSize = minOf(size, 320)
-        return if (size > targetSize) {
+        val result = if (size > targetSize) {
             Bitmap.createScaledBitmap(square, targetSize, targetSize, true)
         } else {
             square
         }
+        if (square !== result && !square.isRecycled) {
+            square.recycle()
+        }
+        if (bitmap !== result && bitmap !== square && !bitmap.isRecycled) {
+            bitmap.recycle()
+        }
+        return result
     }
 }

@@ -44,9 +44,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.automirrored.rounded.VolumeDown
-import androidx.compose.material.icons.automirrored.rounded.VolumeMute
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -264,13 +261,8 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(controller?.isPlaying ?: false) }
     var position by remember { mutableStateOf(controller?.currentPosition ?: 0L) }
     var duration by remember { mutableStateOf(controller?.duration ?: 0L) }
-    val shuffleEnabledFromController by ServiceLocator.playbackController.isShuffleEnabledState.collectAsState()
-    var shuffle by remember { mutableStateOf(shuffleEnabledFromController) }
+    val shuffleMode by ServiceLocator.playbackController.shuffleModeState.collectAsState()
     var repeatMode by remember { mutableStateOf(controller?.repeatMode ?: ServiceLocator.playbackController.repeatMode) }
-
-    LaunchedEffect(shuffleEnabledFromController) {
-        shuffle = shuffleEnabledFromController
-    }
 
     LaunchedEffect(controller) {
         controller?.run {
@@ -292,10 +284,6 @@ fun PlayerScreen(
                     duration = this@run.duration.coerceAtLeast(0L)
                 }
 
-                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                    shuffle = shuffleModeEnabled
-                }
-
                 override fun onRepeatModeChanged(mode: Int) {
                     repeatMode = mode
                 }
@@ -314,7 +302,6 @@ fun PlayerScreen(
             isPlaying = this.isPlaying
             position = currentPosition
             duration = this.duration.coerceAtLeast(0L)
-            shuffle = shuffleModeEnabled
             repeatMode = this.repeatMode
             speedValue = playbackParameters.speed
             pitchValue = playbackParameters.pitch
@@ -626,20 +613,40 @@ fun PlayerScreen(
                             },
                         )
                     }
-                    // Shuffle ON → shuffle icon (accent). OFF → straight arrows (sequential).
+                    // 3-state Shuffle: OFF (Straight) -> QUEUE (Playlist) -> ALL (Shuffle All Library)
                     IconButton(
                         onClick = {
-                            val next = !shuffle
-                            shuffle = next
-                            ServiceLocator.playbackController.setShuffleMode(next)
-                            shuffleToast = if (next) "Shuffle mode is on" else "Shuffle mode is off"
+                            val next = ServiceLocator.playbackController.cycleShuffleMode()
+                            shuffleToast = when (next) {
+                                PlaybackController.ShuffleMode.OFF -> "Straight play (Shuffle off)"
+                                PlaybackController.ShuffleMode.QUEUE -> "Shuffling current playlist"
+                                PlaybackController.ShuffleMode.ALL -> "Shuffling all songs in library"
+                            }
                         },
                     ) {
-                        Icon(
-                            imageVector = if (shuffle) Icons.Rounded.Shuffle else Icons.Rounded.SwapHoriz,
-                            contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
-                            tint = if (shuffle) TideColors.accent else TideColors.textPrimary.copy(alpha = 0.8f),
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (shuffleMode == PlaybackController.ShuffleMode.OFF) Icons.Rounded.SwapHoriz else Icons.Rounded.Shuffle,
+                                contentDescription = when (shuffleMode) {
+                                    PlaybackController.ShuffleMode.OFF -> "Straight play"
+                                    PlaybackController.ShuffleMode.QUEUE -> "Shuffle playlist"
+                                    PlaybackController.ShuffleMode.ALL -> "Shuffle all"
+                                },
+                                tint = if (shuffleMode != PlaybackController.ShuffleMode.OFF) TideColors.accent else TideColors.textPrimary.copy(alpha = 0.8f),
+                            )
+                            if (shuffleMode == PlaybackController.ShuffleMode.ALL) {
+                                Text(
+                                    text = "ALL",
+                                    color = TideColors.accent,
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .background(TideColors.surfaceElevated, shape = RoundedCornerShape(2.dp))
+                                        .padding(horizontal = 1.5.dp)
+                                )
+                            }
+                        }
                     }
                     Box {
                         IconButton(onClick = { overflowOpen = true }) {
@@ -813,78 +820,7 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(22.dp))
-
-                // Always-open sound slider at the bottom of the Player section
-                val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager }
-                var currentVol by remember {
-                    mutableFloatStateOf((audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0).toFloat())
-                }
-                val maxVol = remember {
-                    (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).toFloat()
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = {
-                            val newVol = if (currentVol > 0f) 0 else (maxVol * 0.3f).toInt()
-                            currentVol = newVol.toFloat()
-                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
-                        },
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (currentVol == 0f) Icons.AutoMirrored.Rounded.VolumeMute else Icons.AutoMirrored.Rounded.VolumeDown,
-                            contentDescription = "Mute/Unmute",
-                            tint = TideColors.textSecondary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-
-                    Spacer(Modifier.width(8.dp))
-
-                    com.example.tidemusic.ui.common.TideScrubSlider(
-                        value = currentVol,
-                        range = 0f..maxVol,
-                        onValueChange = { newVolFloat ->
-                            val newVol = newVolFloat.toInt().coerceIn(0, maxVol.toInt())
-                            currentVol = newVolFloat
-                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
-                        },
-                        modifier = Modifier.weight(1f),
-                        activeColor = TideColors.textPrimary,
-                        touchHeight = 32.dp,
-                        restTrackHeight = 3.dp,
-                        dragTrackHeight = 5.dp,
-                        restThumbRadius = 5.5.dp,
-                        dragThumbRadius = 8.5.dp,
-                    )
-
-                    Spacer(Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            val newVol = maxVol.toInt()
-                            currentVol = newVol.toFloat()
-                            audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
-                        },
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
-                            contentDescription = "Max Volume",
-                            tint = TideColors.textSecondary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
