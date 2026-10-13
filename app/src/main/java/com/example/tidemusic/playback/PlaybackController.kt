@@ -107,6 +107,9 @@ class PlaybackController constructor(
     val currentMediaId: Long?
         get() = player?.currentMediaItem?.mediaId?.toLongOrNull()
 
+    val mediaItemCount: Int
+        get() = player?.mediaItemCount ?: 0
+
     private val _currentPlayingSongId = MutableStateFlow<Long?>(null)
     val currentPlayingSongId: StateFlow<Long?> = _currentPlayingSongId.asStateFlow()
 
@@ -442,6 +445,25 @@ class PlaybackController constructor(
             }
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error pausing playback", e)
+        }
+    }
+
+    fun play() {
+        ensureServiceStarted()
+        val p = player ?: return
+        try {
+            if (!p.isPlaying) {
+                if (p.playbackState == Player.STATE_IDLE || p.playerError != null) {
+                    p.prepare()
+                } else if (p.playbackState == Player.STATE_ENDED) {
+                    p.seekTo(0, 0L)
+                    p.prepare()
+                }
+                p.play()
+                savePlaybackState()
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error starting playback", e)
         }
     }
 
