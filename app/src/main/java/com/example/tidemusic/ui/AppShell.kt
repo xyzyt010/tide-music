@@ -37,6 +37,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Folder
@@ -265,7 +266,7 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Search -> Icons.Rounded.Search
                                         Download -> Icons.Rounded.Download
                                         Artists -> Icons.Rounded.Person
-                                        VoiceCommand -> Icons.Rounded.Mic
+                                        VoiceCommand -> Icons.Rounded.AutoAwesome
                                         else -> Icons.Rounded.PlayArrow
                                     }
                                     val label = when (navKey) {
@@ -277,7 +278,7 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Search -> "Search"
                                         Download -> "Download"
                                         Artists -> "Artists"
-                                        VoiceCommand -> "Voice"
+                                        VoiceCommand -> "Assistant"
                                         else -> ""
                                     }
                                     Column(
@@ -340,7 +341,7 @@ fun AppShell(initialDeepLink: String? = null) {
                                         CenteredMenuItem(Icons.Rounded.Equalizer, "Equalizer") {
                                             menuOpen = false; backStack.add(EqualizerNavKey)
                                         }
-                                        CenteredMenuItem(Icons.Rounded.Mic, "Voice AI") {
+                                        CenteredMenuItem(Icons.Rounded.AutoAwesome, "Assistant") {
                                             menuOpen = false
                                             val voiceIdx = sections.indexOf(VoiceCommand)
                                             if (voiceIdx >= 0) {

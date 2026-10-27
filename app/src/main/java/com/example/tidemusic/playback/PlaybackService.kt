@@ -89,6 +89,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
         const val ACTION_NEXT = "com.example.tidemusic.ACTION_NEXT"
         const val ACTION_TOGGLE_FAVORITE = "com.example.tidemusic.ACTION_TOGGLE_FAVORITE"
         const val ACTION_TOGGLE_SHUFFLE = "com.example.tidemusic.ACTION_TOGGLE_SHUFFLE"
+        const val ACTION_TOGGLE_REPEAT = "com.example.tidemusic.ACTION_TOGGLE_REPEAT"
         const val ACTION_CLOSE = "com.example.tidemusic.ACTION_CLOSE"
 
         private const val STANDARD_ACTIONS: Long =
@@ -395,6 +396,10 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     playbackController.toggleShuffle()
                     syncPlaybackAndNotification()
                 }
+                ACTION_TOGGLE_REPEAT -> {
+                    playbackController.cycleRepeat()
+                    syncPlaybackAndNotification()
+                }
                 ACTION_CLOSE -> {
                     saveState()
                     player?.stop()
@@ -573,6 +578,14 @@ class PlaybackService : MediaBrowserServiceCompat() {
         val closeIntent = buildActionIntent(ACTION_CLOSE)
         val favIntent = buildActionIntent(ACTION_TOGGLE_FAVORITE)
 
+        val repeatMode = p?.repeatMode ?: Player.REPEAT_MODE_OFF
+        val (repeatIcon, repeatTitle) = when (repeatMode) {
+            Player.REPEAT_MODE_ALL -> Pair(R.drawable.ic_notif_repeat_all, "Repeat Queue")
+            Player.REPEAT_MODE_ONE -> Pair(R.drawable.ic_notif_repeat_one, "Repeat One")
+            else -> Pair(R.drawable.ic_notif_repeat_off, "Repeat Off")
+        }
+        val repeatIntent = buildActionIntent(ACTION_TOGGLE_REPEAT)
+
         val sessionActivityIntent = Intent(this, MainActivity::class.java).apply {
             data = "tidemusic://player".toUri()
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -618,7 +631,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
             .addAction(R.drawable.ic_notif_prev, "Previous", prevIntent)                       // Action 0
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPauseIntent)     // Action 1
             .addAction(R.drawable.ic_notif_next, "Next", nextIntent)                           // Action 2
-            .addAction(favIcon, if (isCurrentSongFavorite) "Favorited" else "Favorite", favIntent) // Action 3
+            .addAction(repeatIcon, repeatTitle, repeatIntent)                                   // Action 3 (Repeat toggle)
             .addAction(shuffleIcon, shuffleTitle, shuffleIntent)                                // Action 4 (dynamic transforming button)
 
         return builder.build()
@@ -700,30 +713,43 @@ class PlaybackService : MediaBrowserServiceCompat() {
             try {
                 val prefs = getSharedPreferences("playback_state", Context.MODE_PRIVATE)
                 val savedIds = prefs.getString("queue_ids", "") ?: ""
-                if (savedIds.isNotBlank()) {
-                    val ids = savedIds.split(",").mapNotNull { it.toLongOrNull() }
-                    val allSongs = ServiceLocator.repository.observeAllSongs().first().associateBy { it.id }
-                    val queueSongs = ids.mapNotNull { allSongs[it] }
-                    val savedIndex = prefs.getInt("queue_index", 0)
-                    val savedPosition = prefs.getLong("queue_position", 0L)
-                    val savedShuffleInt = prefs.getInt("shuffle_mode_int", if (prefs.getBoolean("shuffle_mode_enabled", false)) 1 else 0)
-                    val savedShuffleMode = PlaybackController.ShuffleMode.fromValue(savedShuffleInt)
-                    val savedRepeat = prefs.getInt("repeat_mode", Player.REPEAT_MODE_ALL)
+                val savedSongId = prefs.getLong("current_song_id", -1L)
+                val allSongsList = ServiceLocator.repository.observeAllSongs().first()
+                val allSongs = allSongsList.associateBy { it.id }
 
-                    withContext(Dispatchers.Main) {
-                        val mediaItems = queueSongs.map { playbackController.mediaItemFor(it) }
-                        if (mediaItems.isNotEmpty()) {
-                            val targetIndex = savedIndex.coerceIn(0, mediaItems.lastIndex)
-                            player?.setMediaItems(mediaItems, targetIndex, savedPosition)
-                            if (savedShuffleMode != PlaybackController.ShuffleMode.OFF && mediaItems.size > 1) {
-                                playbackController.applyHardwareEntropyShuffle(player!!, fixedFirstIndex = targetIndex)
-                            }
-                            player?.shuffleModeEnabled = savedShuffleMode != PlaybackController.ShuffleMode.OFF
-                            player?.repeatMode = savedRepeat
-                            playbackController.setShuffleMode(savedShuffleMode)
-                            player?.prepare()
-                            syncPlaybackAndNotification()
+                val queueSongs: List<com.example.tidemusic.domain.Song> = if (savedIds.isNotBlank()) {
+                    val ids = savedIds.split(",").mapNotNull { it.toLongOrNull() }
+                    ids.mapNotNull { allSongs[it] }
+                } else if (savedSongId != -1L && allSongs.containsKey(savedSongId)) {
+                    listOfNotNull(allSongs[savedSongId])
+                } else {
+                    emptyList()
+                }
+
+                val savedIndex = prefs.getInt("queue_index", 0)
+                val savedPosition = prefs.getLong("queue_position", 0L)
+                val savedShuffleInt = prefs.getInt("shuffle_mode_int", if (prefs.getBoolean("shuffle_mode_enabled", false)) 1 else 0)
+                val savedShuffleMode = PlaybackController.ShuffleMode.fromValue(savedShuffleInt)
+                val savedRepeat = prefs.getInt("repeat_mode", Player.REPEAT_MODE_ALL)
+
+                withContext(Dispatchers.Main) {
+                    val mediaItems = queueSongs.map { playbackController.mediaItemFor(it) }
+                    if (mediaItems.isNotEmpty()) {
+                        val exactIndex = if (savedSongId != -1L) {
+                            val idx = queueSongs.indexOfFirst { it.id == savedSongId }
+                            if (idx >= 0) idx else savedIndex.coerceIn(0, mediaItems.lastIndex)
+                        } else {
+                            savedIndex.coerceIn(0, mediaItems.lastIndex)
                         }
+                        player?.setMediaItems(mediaItems, exactIndex, savedPosition)
+                        if (savedShuffleMode != PlaybackController.ShuffleMode.OFF && mediaItems.size > 1) {
+                            playbackController.applyHardwareEntropyShuffle(player!!, fixedFirstIndex = exactIndex)
+                        }
+                        player?.shuffleModeEnabled = savedShuffleMode != PlaybackController.ShuffleMode.OFF
+                        player?.repeatMode = savedRepeat
+                        playbackController.setShuffleMode(savedShuffleMode)
+                        player?.prepare()
+                        syncPlaybackAndNotification()
                     }
                 }
             } catch (e: Throwable) {
@@ -742,15 +768,19 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
                 if (id != null) ids.add(id)
             }
-            if (ids.isEmpty()) return
+            val currentSongId = p.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
+            if (ids.isEmpty() && currentSongId == -1L) return
             val prefs = getSharedPreferences("playback_state", Context.MODE_PRIVATE)
             prefs.edit()
-                .putString("queue_ids", ids.joinToString(","))
-                .putInt("queue_index", p.currentMediaItemIndex)
-                .putLong("queue_position", p.currentPosition)
-                .putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
-                .putInt("shuffle_mode_int", playbackController.shuffleModeState.value.value)
-                .putInt("repeat_mode", p.repeatMode)
+                .apply {
+                    if (ids.isNotEmpty()) putString("queue_ids", ids.joinToString(","))
+                    if (currentSongId != -1L) putLong("current_song_id", currentSongId)
+                    putInt("queue_index", p.currentMediaItemIndex)
+                    putLong("queue_position", p.currentPosition)
+                    putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
+                    putInt("shuffle_mode_int", playbackController.shuffleModeState.value.value)
+                    putInt("repeat_mode", p.repeatMode)
+                }
                 .commit()
         } catch (e: Throwable) {
             Log.e(TAG, "Error saving state", e)
@@ -784,6 +814,11 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 }
                 ACTION_TOGGLE_SHUFFLE -> {
                     playbackController.toggleShuffle()
+                    syncPlaybackAndNotification()
+                    return START_NOT_STICKY
+                }
+                ACTION_TOGGLE_REPEAT -> {
+                    playbackController.cycleRepeat()
                     syncPlaybackAndNotification()
                     return START_NOT_STICKY
                 }

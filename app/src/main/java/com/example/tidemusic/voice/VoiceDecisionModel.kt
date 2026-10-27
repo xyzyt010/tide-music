@@ -18,6 +18,7 @@ sealed class VoiceIntent {
     data class Next(val confidence: Float) : VoiceIntent()
     data class Previous(val confidence: Float) : VoiceIntent()
     data class ToggleShuffle(val enable: Boolean?, val confidence: Float) : VoiceIntent()
+    data class ShuffleAll(val confidence: Float) : VoiceIntent()
     data class ToggleRepeat(val mode: Int?, val confidence: Float) : VoiceIntent()
     data class ToggleFavorite(val confidence: Float) : VoiceIntent()
     data class Volume(val delta: Int, val confidence: Float) : VoiceIntent()
@@ -118,6 +119,15 @@ object VoiceDecisionModel {
         }
 
         // 5. Shuffle commands
+        if (text == "shuffle all" ||
+            text == "shuffle all songs" ||
+            text == "shuffle everything" ||
+            text == "random all" ||
+            text == "play all songs shuffled" ||
+            text == "shuffle library"
+        ) {
+            return VoiceIntent.ShuffleAll(0.99f)
+        }
         if (text == "shuffle" ||
             text == "shuffle songs" ||
             text == "turn on shuffle" ||
@@ -138,6 +148,14 @@ object VoiceDecisionModel {
         }
 
         // 6. Repeat / Loop commands
+        if (text == "repeat off" ||
+            text == "turn off repeat" ||
+            text == "disable repeat" ||
+            text == "no repeat" ||
+            text == "stop repeating"
+        ) {
+            return VoiceIntent.ToggleRepeat(mode = androidx.media3.common.Player.REPEAT_MODE_OFF, confidence = 0.95f)
+        }
         if (text == "repeat one" ||
             text == "repeat current song" ||
             text == "repeat this song" ||

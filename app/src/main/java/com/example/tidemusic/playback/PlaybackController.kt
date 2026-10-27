@@ -701,14 +701,15 @@ class PlaybackController constructor(
         }
     }
 
-    /** 2-state toggle: Repeat Queue (REPEAT_MODE_ALL) <-> Repeat One-Song (REPEAT_MODE_ONE). */
+    /** 3-state cycle: Repeat Off (0) -> Repeat Queue (2) -> Repeat One-Song (1) -> Repeat Off (0). */
     fun cycleRepeat(): Int {
         val p = player ?: return Player.REPEAT_MODE_ALL
         try {
-            p.repeatMode = if (p.repeatMode == Player.REPEAT_MODE_ONE) {
-                Player.REPEAT_MODE_ALL
-            } else {
-                Player.REPEAT_MODE_ONE
+            p.repeatMode = when (p.repeatMode) {
+                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+                else -> Player.REPEAT_MODE_ALL
             }
             return p.repeatMode
         } catch (e: Exception) {
@@ -732,24 +733,28 @@ class PlaybackController constructor(
             val count = p.mediaItemCount
             val currentIndex = p.currentMediaItemIndex.coerceAtLeast(0)
             val currentPos = p.currentPosition.coerceAtLeast(0L)
+            val currentSongId = p.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
             val ids = ArrayList<Long>(count)
             for (i in 0 until count) {
                 val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
                 if (id != null) ids.add(id)
             }
-            if (ids.isEmpty()) return
+            if (ids.isEmpty() && currentSongId == -1L) return
             saveStateJob?.cancel()
             saveStateJob = ioScope.launch {
                 try {
                     val prefs = context.getSharedPreferences("playback_state", Context.MODE_PRIVATE)
                     prefs.edit()
-                        .putString("queue_ids", ids.joinToString(","))
-                        .putInt("queue_index", currentIndex)
-                        .putLong("queue_position", currentPos)
-                        .putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
-                        .putInt("shuffle_mode_int", _shuffleModeState.value.value)
-                        .putInt("repeat_mode", p.repeatMode)
-                        .apply()
+                        .apply {
+                            if (ids.isNotEmpty()) putString("queue_ids", ids.joinToString(","))
+                            if (currentSongId != -1L) putLong("current_song_id", currentSongId)
+                            putInt("queue_index", currentIndex)
+                            putLong("queue_position", currentPos)
+                            putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
+                            putInt("shuffle_mode_int", _shuffleModeState.value.value)
+                            putInt("repeat_mode", p.repeatMode)
+                        }
+                        .commit()
                 } catch (e: Exception) {
                     Log.e("PlaybackController", "Error saving playback state to prefs", e)
                 }
@@ -782,6 +787,7 @@ class PlaybackController constructor(
                     } catch (_: Exception) {}
                 }
             }
+            savePlaybackState()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {

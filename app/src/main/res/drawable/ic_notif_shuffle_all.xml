@@ -4,12 +4,33 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
-    <!-- Shuffle arrows -->
+    <!-- Top-left arm (cut at center) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M10.59,9.17L5.41,4 4,5.41l5.17,5.17 1.42,-1.41zM14.5,4l2.04,2.04L4,18.59 5.41,20 17.96,7.46 20,9.5V4h-5.5zm0.33,9.41l-1.41,1.41 3.13,3.13L14.5,20H20v-5.5l-2.04,2.04-3.13,-3.13z"/>
-    <!-- "ALL" dot / infinity indicator badge -->
+        android:pathData="M4,5.41L5.41,4l2.8,2.8 -1.41,1.41z"/>
+    <!-- Bottom-left arm (cut at center) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M12,2a2,2 0 1,0 0.001,0.001z M4,12a2,2 0 1,0 0.001,0.001z M20,12a2,2 0 1,0 0.001,0.001z"/>
+        android:pathData="M4,18.59L6.8,15.79l1.41,1.41 -2.8,2.8z"/>
+    <!-- Top-right arrow & arm (identical to shuffle_on arrow) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14.5,4l2.04,2.04 -1.14,1.14 1.41,1.41 1.15,-1.13L20,9.5V4h-5.5z"/>
+    <!-- Bottom-right arrow & arm (identical to shuffle_on arrow) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14.5,20H20v-5.5l-2.04,2.04 -1.15,-1.14 -1.41,1.41 1.14,1.15L14.5,20z"/>
+    <!-- Bold, readable "ALL" cutout letters in the center -->
+    <!-- 'A' -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8.6,9L7,15h1.2l0.4,-1.5h1.6l0.4,1.5h1.2L10.2,9H8.6zm0.35,1.6h0.1l0.5,1.9H8.45l0.5,-1.9z"/>
+    <!-- First 'L' -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M11.2,9h1.1v5h1.4v1h-2.5V9z"/>
+    <!-- Second 'L' -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14.1,9h1.1v5h1.4v1h-2.5V9z"/>
 </vector>

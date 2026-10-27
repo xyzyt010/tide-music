@@ -1,20 +1,6 @@
 package com.example.tidemusic.voice
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -32,55 +18,54 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicNone
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Psychology
-import androidx.compose.material.icons.rounded.RecordVoiceOver
-import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.VolumeDown
 import androidx.compose.material.icons.rounded.VolumeUp
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tidemusic.theme.TideColors
-import com.example.tidemusic.ui.common.PlayerArtwork
-import com.example.tidemusic.util.formatDuration
+import com.example.tidemusic.ui.common.ArtworkTile
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun VoiceCommandScreen(
@@ -91,422 +76,193 @@ fun VoiceCommandScreen(
         VoiceCommandViewModel(context.applicationContext)
     }
 
-    var hasMicPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasMicPermission = granted
-        viewModel.onPermissionGranted(granted)
-    }
-
-    LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        hasMicPermission = granted
-        viewModel.onPermissionGranted(granted)
-        if (!granted) {
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        viewModel.onScreenResumed()
-        onDispose {
-            viewModel.onScreenPaused()
-        }
-    }
-
-    val isInitializing by viewModel.isInitializing.collectAsState()
-    val isListening by viewModel.isListening.collectAsState()
-    val isWakeWordActive by viewModel.isWakeWordActive.collectAsState()
-    val isVadSpeechActive by viewModel.isVadSpeechActive.collectAsState()
-    val transcript by viewModel.transcript.collectAsState()
-    val partialTranscript by viewModel.partialTranscript.collectAsState()
-    val lastIntent by viewModel.lastIntent.collectAsState()
+    val inputText by viewModel.inputText.collectAsState()
+    val isProcessing by viewModel.isProcessing.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
     val matchedSong by viewModel.matchedSong.collectAsState()
     val matchConfidence by viewModel.matchConfidence.collectAsState()
-    val audioRms by viewModel.audioRms.collectAsState()
-    val statusMessage by viewModel.statusMessage.collectAsState()
+    val matchType by viewModel.matchType.collectAsState()
     val history by viewModel.commandHistory.collectAsState()
 
-    val animatedRms by animateFloatAsState(
-        targetValue = if (isListening || isVadSpeechActive) audioRms else 0f,
-        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
-        label = "rms_anim"
-    )
-
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = if (isListening) 1.25f else 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
-
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .background(TideColors.background)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Section Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "Command Based Playing",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp
-                    ),
-                    color = TideColors.textPrimary
-                )
-                Text(
-                    text = "Wake word & on-device STT decision engine",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TideColors.textSecondary
-                )
-            }
-
-            // Wake word status pill
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = if (isWakeWordActive) TideColors.accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.08f),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (isWakeWordActive) TideColors.accent.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.12f)
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clickable { viewModel.toggleWakeWord(!isWakeWordActive) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isWakeWordActive) Icons.Rounded.RecordVoiceOver else Icons.Rounded.MicNone,
-                        contentDescription = null,
-                        tint = if (isWakeWordActive) TideColors.accent else TideColors.textSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (isWakeWordActive) "\"Hey Jarvis\" On" else "Wake Off",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (isWakeWordActive) TideColors.accent else TideColors.textSecondary
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        // Permission card if not granted
-        if (!hasMicPermission) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = TideColors.error.copy(alpha = 0.15f)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, TideColors.error.copy(alpha = 0.35f))
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Microphone Permission Required",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = TideColors.error
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Microphone access is needed for continuous wake word recognition (\"Hey Jarvis\") and speech-to-text music playback commands.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TideColors.textPrimary
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
-                        colors = ButtonDefaults.buttonColors(containerColor = TideColors.error)
-                    ) {
-                        Text("Grant Permission", color = Color.White)
-                    }
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-        }
-
-        // Initializing banner if AI models are unpacking/loading
-        if (isInitializing) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = TideColors.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, TideColors.accent.copy(alpha = 0.35f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = TideColors.accent
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = statusMessage,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TideColors.textPrimary
-                    )
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-        }
-
-        // Centerpiece Interactive Audio Visualizer & Mic Button
-        Box(
-            modifier = Modifier
-                .size(220.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            // Outermost pulsating glow aura
-            Box(
-                modifier = Modifier
-                    .size((170 + animatedRms * 50).dp)
-                    .scale(pulseScale)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                (if (isListening) TideColors.accent else TideColors.accent.copy(alpha = 0.4f)).copy(alpha = 0.28f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-
-            // Secondary wave ring
-            Box(
-                modifier = Modifier
-                    .size((140 + animatedRms * 30).dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isListening) TideColors.accent.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.05f)
-                    )
-                    .border(
-                        1.5.dp,
-                        if (isListening) TideColors.accent.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.12f),
-                        CircleShape
-                    )
-            )
-
-            // Primary Interactive Mic Button
-            val buttonColor by animateColorAsState(
-                targetValue = if (isListening) TideColors.accent else TideColors.surface,
-                label = "btn_color"
-            )
-
-            Box(
-                modifier = Modifier
-                    .size(92.dp)
-                    .clip(CircleShape)
-                    .background(buttonColor)
-                    .border(2.dp, if (isListening) Color.White else TideColors.outline, CircleShape)
-                    .clickable {
-                        if (!hasMicPermission) {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        } else {
-                            viewModel.toggleListening()
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                if (isListening) {
-                    // Dancing Sound Waveforms inside the button
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val barPhases = listOf(0.45f, 0.85f, 1.0f, 0.75f, 0.5f)
-                        barPhases.forEachIndexed { idx, phase ->
-                            val dynamicHeight = (14f + (animatedRms * 38f * phase) + (pulseScale * 8f * ((idx % 2) + 0.4f))).coerceIn(10f, 46f)
-                            Box(
-                                modifier = Modifier
-                                    .width(5.dp)
-                                    .height(dynamicHeight.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(Color.White)
-                            )
-                        }
-                    }
-                } else {
-                    Icon(
-                        imageVector = Icons.Rounded.Mic,
-                        contentDescription = "Start Listening",
-                        tint = TideColors.textPrimary,
-                        modifier = Modifier.size(42.dp)
-                    )
-                }
-            }
-        }
-
-        // Active Audio Waveform Spectrum Strip
-        if (isListening) {
+        // 1. Header Section
+        item {
             Spacer(Modifier.height(8.dp))
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 36.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                val numBars = 19
-                for (i in 0 until numBars) {
-                    val distFromCenter = kotlin.math.abs(i - numBars / 2).toFloat() / (numBars / 2).toFloat()
-                    val barPhase = 1.0f - (distFromCenter * 0.65f)
-                    val barH = (6f + (animatedRms * 34f * barPhase) + (pulseScale * 6f * (if (i % 2 == 0) 1f else 0.4f))).coerceIn(4f, 38f)
-                    Box(
-                        modifier = Modifier
-                            .width(3.dp)
-                            .height(barH.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        TideColors.accent,
-                                        Color(0xFF00E676)
-                                    )
-                                )
-                            )
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
-        // Status Row: TenVAD indicator + Engine Status
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (isVadSpeechActive) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF00E676).copy(alpha = 0.15f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.4f))
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(TideColors.accent.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF00E676))
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = "TenVAD: Speech",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF00E676)
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = TideColors.surface.copy(alpha = 0.8f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (isListening) Color(0xFF00E676) else if (isWakeWordActive) TideColors.accent else Color.Gray)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = statusMessage,
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = TideColors.textPrimary,
-                        textAlign = TextAlign.Center
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = "Assistant",
+                        tint = TideColors.accent,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
-            }
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        // Live Transcript Display
-        val displayText = partialTranscript.ifBlank { transcript }
-        if (displayText.isNotBlank()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = TideColors.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.GraphicEq,
-                            contentDescription = null,
-                            tint = TideColors.accent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (partialTranscript.isNotBlank()) "Listening…" else "Recognized Speech",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TideColors.textSecondary
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.width(12.dp))
+                Column {
                     Text(
-                        text = "“$displayText”",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 18.sp
+                        text = "Tide Assistant",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
                         ),
                         color = TideColors.textPrimary
                     )
+                    Text(
+                        text = "Typed command routing & fuzzy library search",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TideColors.textSecondary
+                    )
                 }
             }
-            Spacer(Modifier.height(14.dp))
         }
 
-        // Matched Song & Decision Card
-        if (matchedSong != null) {
-            val song = matchedSong!!
-            Card(
+        // 2. Command Input Bar
+        item {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = TideColors.accent.copy(alpha = 0.12f)),
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, TideColors.accent.copy(alpha = 0.45f))
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { viewModel.onInputTextChanged(it) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text(
+                            text = "e.g. \"play starboy\", \"shuffle all\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TideColors.textSecondary.copy(alpha = 0.7f)
+                        )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (inputText.isNotBlank()) {
+                                viewModel.submitCommand()
+                            }
+                        }
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = TideColors.surface,
+                        unfocusedContainerColor = TideColors.surface,
+                        focusedBorderColor = TideColors.accent,
+                        unfocusedBorderColor = TideColors.outline,
+                        focusedTextColor = TideColors.textPrimary,
+                        unfocusedTextColor = TideColors.textPrimary,
+                        cursorColor = TideColors.accent
+                    ),
+                    trailingIcon = {
+                        if (inputText.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.onInputTextChanged("") }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Clear,
+                                    contentDescription = "Clear",
+                                    tint = TideColors.textSecondary
+                                )
+                            }
+                        }
+                    }
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            if (inputText.isNotBlank()) TideColors.accent
+                            else TideColors.accent.copy(alpha = 0.35f)
+                        )
+                        .clickable(enabled = inputText.isNotBlank()) {
+                            viewModel.submitCommand()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isProcessing) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Send,
+                            contentDescription = "Send",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // 3. Quick Action Chips
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Quick Actions",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = TideColors.textSecondary
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionChip("Shuffle All", Icons.Rounded.Shuffle) {
+                        viewModel.executeQuickCommand("shuffle all")
+                    }
+                    ActionChip("Play Paused", Icons.Rounded.PlayArrow) {
+                        viewModel.executeQuickCommand("play")
+                    }
+                    ActionChip("Next Track", Icons.Rounded.SkipNext) {
+                        viewModel.executeQuickCommand("next")
+                    }
+                    ActionChip("Previous", Icons.Rounded.SkipPrevious) {
+                        viewModel.executeQuickCommand("previous")
+                    }
+                    ActionChip("Repeat Queue", Icons.Rounded.Repeat) {
+                        viewModel.executeQuickCommand("repeat all")
+                    }
+                    ActionChip("Repeat One", Icons.Rounded.Repeat) {
+                        viewModel.executeQuickCommand("repeat one")
+                    }
+                    ActionChip("Volume Up", Icons.Rounded.VolumeUp) {
+                        viewModel.executeQuickCommand("volume up")
+                    }
+                    ActionChip("Volume Down", Icons.Rounded.VolumeDown) {
+                        viewModel.executeQuickCommand("volume down")
+                    }
+                }
+            }
+        }
+
+        // 4. Status / Result Feedback Card
+        item {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = TideColors.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, TideColors.outline, RoundedCornerShape(14.dp))
             ) {
                 Row(
                     modifier = Modifier
@@ -514,125 +270,40 @@ fun VoiceCommandScreen(
                         .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    PlayerArtwork(
-                        song = song,
-                        size = 56.dp,
-                        isPlaying = true
+                    Icon(
+                        imageVector = Icons.Rounded.Info,
+                        contentDescription = "Status",
+                        tint = TideColors.accent,
+                        modifier = Modifier.size(20.dp)
                     )
-
-                    Spacer(Modifier.width(14.dp))
-
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFF00E676).copy(alpha = 0.2f)
-                            ) {
-                                Text(
-                                    text = "PLAYING MATCH",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = Color(0xFF00E676),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "${(matchConfidence * 100).toInt()}% match",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TideColors.textSecondary
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = song.title,
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            color = TideColors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${song.artist} • ${formatDuration(song.durationMs)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TideColors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TideColors.textPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
-            Spacer(Modifier.height(16.dp))
         }
 
-        // Quick Suggestion Chips (Common voice queries for 1-tap testing)
-        Column(Modifier.fillMaxWidth()) {
-            Text(
-                text = "Try Saying Or Tapping:",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = TideColors.textSecondary
-            )
-            Spacer(Modifier.height(8.dp))
-
-            val quickCommands = listOf(
-                "Play the winner takes it all",
-                "Pause the current song",
-                "Play the paused song",
-                "Next song",
-                "Previous song",
-                "Turn on shuffle",
-                "Repeat current song",
-                "Favorite this song",
-                "Volume up"
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                quickCommands.forEach { cmd ->
+        // 5. Matched Song Card (if available)
+        if (matchedSong != null) {
+            item {
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    val song = matchedSong!!
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = TideColors.surface,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                        modifier = Modifier.clickable {
-                            viewModel.executeQuickCommand(cmd)
-                        }
-                    ) {
-                        Text(
-                            text = cmd,
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                            color = TideColors.textPrimary,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // Recent Executed Commands History
-        if (history.isNotEmpty()) {
-            Column(Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Recent Voice Commands",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = TideColors.textSecondary
-                )
-                Spacer(Modifier.height(8.dp))
-
-                history.take(4).forEach { item ->
-                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = TideColors.surface.copy(alpha = 0.6f)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+                            .border(1.dp, TideColors.accent.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                            .clickable { viewModel.playMatchedSong(song) }
                     ) {
                         Row(
                             modifier = Modifier
@@ -640,63 +311,149 @@ fun VoiceCommandScreen(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = Color(0xFF00E676),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
+                            ArtworkTile(song = song, size = 48.dp, rounded = 10.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "“${item.transcript}”",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = TideColors.textPrimary
+                                    text = song.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = TideColors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = item.actionDescription,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TideColors.textSecondary
+                                    text = song.artist,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TideColors.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (matchType.isNotBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = "$matchType (${(matchConfidence * 100).toInt()}%)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TideColors.accent
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { viewModel.playMatchedSong(song) }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PlayArrow,
+                                    contentDescription = "Play",
+                                    tint = TideColors.accent,
+                                    modifier = Modifier.size(28.dp)
                                 )
                             }
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(20.dp))
         }
 
-        // Technical Inference Architecture Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.04f)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
-        ) {
-            Column(Modifier.padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        // 6. Command History Section
+        if (history.isNotEmpty()) {
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Rounded.Psychology,
-                        contentDescription = null,
-                        tint = TideColors.accent,
-                        modifier = Modifier.size(18.dp)
+                        imageVector = Icons.Rounded.History,
+                        contentDescription = "History",
+                        tint = TideColors.textSecondary,
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Voice AI & Inference Pipeline",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = TideColors.textPrimary
+                        text = "Recent Commands",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = TideColors.textSecondary
                     )
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "• AudioRecord: 16 kHz 16-bit PCM continuous capture\n• VAD & microWakeWord: Energy-contour trigger for \"Hey Jarvis\"\n• STT ASR: On-device offline-first speech recognizer\n• Decision Model: Laya-compatible typed intent & fuzzy Levenshtein entity router",
-                    style = MaterialTheme.typography.labelSmall.copy(lineHeight = 16.sp),
-                    color = TideColors.textSecondary
-                )
+            }
+
+            items(history) { item ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = TideColors.surface.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.executeQuickCommand(item.transcript) }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.transcript,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                color = TideColors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = item.actionDescription,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TideColors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = formatTime(item.timestamp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TideColors.textSecondary.copy(alpha = 0.6f)
+                        )
+                    }
+                }
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        item {
+            Spacer(Modifier.height(80.dp)) // padding for bottom bar
+        }
     }
+}
+
+@Composable
+private fun ActionChip(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = TideColors.surface,
+        modifier = Modifier
+            .border(1.dp, TideColors.outline, RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = TideColors.accent,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                color = TideColors.textPrimary
+            )
+        }
+    }
+}
+
+private fun formatTime(millis: Long): String {
+    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+    return sdf.format(Date(millis))
 }
