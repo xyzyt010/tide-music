@@ -4,33 +4,39 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
-    <!-- Top-left arm (cut at center) -->
+    <!-- Top-Left diagonal arm (cut before center) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M4,5.41L5.41,4l2.8,2.8 -1.41,1.41z"/>
-    <!-- Bottom-left arm (cut at center) -->
+        android:pathData="M5.41,4L4,5.41 7.1,8.51 8.51,7.1z"/>
+
+    <!-- Bottom-Left diagonal arm (cut before center) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M4,18.59L6.8,15.79l1.41,1.41 -2.8,2.8z"/>
-    <!-- Top-right arrow & arm (identical to shuffle_on arrow) -->
+        android:pathData="M4,18.59L5.41,20 8.51,16.9 7.1,15.49z"/>
+
+    <!-- Top-Right diagonal arm and arrowhead (cut after center) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M14.5,4l2.04,2.04 -1.14,1.14 1.41,1.41 1.15,-1.13L20,9.5V4h-5.5z"/>
-    <!-- Bottom-right arrow & arm (identical to shuffle_on arrow) -->
+        android:pathData="M16,8.4l1.96,-1.96L20,8.48V4h-4.48l1.64,1.64 -2.57,2.57 1.41,1.41z"/>
+
+    <!-- Bottom-Right diagonal arm and arrowhead (cut after center) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M14.5,20H20v-5.5l-2.04,2.04 -1.15,-1.14 -1.41,1.41 1.14,1.15L14.5,20z"/>
-    <!-- Bold, readable "ALL" cutout letters in the center -->
+        android:pathData="M16,15.6l-1.41,1.41 2.57,2.57 -1.64,1.64H20v-4.48l-2.04,2.04 -1.96,-1.96z"/>
+
+    <!-- Centered, sharp "ALL" cutout letters -->
     <!-- 'A' -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M8.6,9L7,15h1.2l0.4,-1.5h1.6l0.4,1.5h1.2L10.2,9H8.6zm0.35,1.6h0.1l0.5,1.9H8.45l0.5,-1.9z"/>
+        android:pathData="M8.7,9.7h1l1.5,4.6h-1.1l-0.3,-1.1h-1.6l-0.3,1.1H6.8zM9.2,10.8l0.5,1.7h-1z"/>
+
     <!-- First 'L' -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M11.2,9h1.1v5h1.4v1h-2.5V9z"/>
+        android:pathData="M11.2,9.7h0.9v3.7h1.4v0.9h-2.3z"/>
+
     <!-- Second 'L' -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M14.1,9h1.1v5h1.4v1h-2.5V9z"/>
+        android:pathData="M13.7,9.7h0.9v3.7h1.4v0.9h-2.3z"/>
 </vector>

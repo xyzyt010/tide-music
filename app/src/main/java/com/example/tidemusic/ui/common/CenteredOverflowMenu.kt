@@ -99,10 +99,12 @@ fun CenteredOverflowMenu(
                         )
                         HorizontalDivider(color = TideColors.outline, thickness = 1.dp)
                     }
+                    val scrollState = rememberScrollState()
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(scrollState)
+                            .verticalScrollbar(scrollState),
                     ) {
                         content()
                     }

@@ -189,6 +189,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
                                 Player.EVENT_REPEAT_MODE_CHANGED
                             )
                         ) {
+                            saveState()
                             syncPlaybackAndNotification()
                             applySmartLoudness()
                         }
@@ -715,6 +716,16 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 val savedIds = prefs.getString("queue_ids", "") ?: ""
                 val savedSongId = prefs.getLong("current_song_id", -1L)
                 val allSongsList = ServiceLocator.repository.observeAllSongs().first()
+                if (allSongsList.isEmpty()) {
+                    // Library might still be scanning on launch; observe until songs are loaded
+                    serviceScope.launch(Dispatchers.IO) {
+                        ServiceLocator.repository.observeAllSongs().first { it.isNotEmpty() }
+                        if (player?.mediaItemCount == 0) {
+                            restoreState()
+                        }
+                    }
+                    return@launch
+                }
                 val allSongs = allSongsList.associateBy { it.id }
 
                 val queueSongs: List<com.example.tidemusic.domain.Song> = if (savedIds.isNotBlank()) {
@@ -768,20 +779,27 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
                 if (id != null) ids.add(id)
             }
-            val currentSongId = p.currentMediaItem?.mediaId?.toLongOrNull() ?: -1L
+            val curIdx = p.currentMediaItemIndex.coerceIn(0, (count - 1).coerceAtLeast(0))
+            val currentSongId = p.currentMediaItem?.mediaId?.toLongOrNull()
+                ?: (if (curIdx in 0 until ids.size) ids[curIdx] else null)
+                ?: -1L
+
             if (ids.isEmpty() && currentSongId == -1L) return
+
             val prefs = getSharedPreferences("playback_state", Context.MODE_PRIVATE)
-            prefs.edit()
-                .apply {
-                    if (ids.isNotEmpty()) putString("queue_ids", ids.joinToString(","))
-                    if (currentSongId != -1L) putLong("current_song_id", currentSongId)
-                    putInt("queue_index", p.currentMediaItemIndex)
-                    putLong("queue_position", p.currentPosition)
-                    putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
-                    putInt("shuffle_mode_int", playbackController.shuffleModeState.value.value)
-                    putInt("repeat_mode", p.repeatMode)
-                }
-                .commit()
+            val editor = prefs.edit()
+            if (ids.isNotEmpty()) {
+                editor.putString("queue_ids", ids.joinToString(","))
+            }
+            if (currentSongId != -1L) {
+                editor.putLong("current_song_id", currentSongId)
+            }
+            editor.putInt("queue_index", curIdx)
+            editor.putLong("queue_position", p.currentPosition.coerceAtLeast(0L))
+            editor.putBoolean("shuffle_mode_enabled", p.shuffleModeEnabled)
+            editor.putInt("shuffle_mode_int", playbackController.shuffleModeState.value.value)
+            editor.putInt("repeat_mode", p.repeatMode)
+            editor.commit()
         } catch (e: Throwable) {
             Log.e(TAG, "Error saving state", e)
         }

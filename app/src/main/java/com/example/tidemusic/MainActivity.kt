@@ -34,6 +34,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Single-activity host (spec Section 1). All screens are Compose destinations. */
@@ -45,7 +46,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
         checkManageAllFilesPermission()
-        triggerLibraryScan()
+        triggerLibraryScan(force = true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,8 +71,16 @@ class MainActivity : ComponentActivity() {
                 var splashVisible by remember { mutableStateOf(true) }
 
                 LaunchedEffect(Unit) {
-                    // Ultra-fast smooth splash transition (300ms)
-                    delay(300L)
+                    if (!hasCompletedOnboarding) {
+                        // On first launch, wait up to 1200ms or until initial scan ingests songs
+                        val start = System.currentTimeMillis()
+                        while (System.currentTimeMillis() - start < 1200L && ServiceLocator.repository.observeAllSongs().first().isEmpty()) {
+                            delay(150L)
+                        }
+                    } else {
+                        // Fast smooth splash transition (300ms)
+                        delay(300L)
+                    }
                     splashVisible = false
                 }
 
@@ -112,18 +121,30 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Background non-blocking library scan
-        triggerLibraryScan()
+        // Background non-blocking library scan (force full scan on first launch)
+        triggerLibraryScan(force = !hasCompletedOnboarding)
     }
 
     override fun onResume() {
         super.onResume()
         if (hasAllPermissions()) {
-            triggerLibraryScan()
+            val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+            val isFirstLaunch = !prefs.getBoolean("has_completed_onboarding", false)
+            triggerLibraryScan(force = isFirstLaunch)
             com.example.tidemusic.util.BatteryOptimizationHelper.promptIfNeeded(this)
         } else {
             requestPermissionsIfNeeded()
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ServiceLocator.playbackController.savePlaybackState()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        ServiceLocator.playbackController.savePlaybackState()
     }
 
     private fun hasAllPermissions(): Boolean {
@@ -183,8 +204,10 @@ class MainActivity : ComponentActivity() {
     /**
      * Triggers asynchronous library scan in the background with a 60-second cooldown
      * to avoid thrashing disk I/O when resuming the app.
+     * When [force] is true or the song database is empty, performs a full two-phase rescan.
      */
     private fun triggerLibraryScan(force: Boolean = false) {
+        if (!hasAllPermissions()) return
         val now = System.currentTimeMillis()
         if (!force && lastScanTimeMs > 0L && (now - lastScanTimeMs) < 60_000L) {
             return
@@ -193,7 +216,8 @@ class MainActivity : ComponentActivity() {
         val repository = ServiceLocator.repository
         activityScope.launch {
             try {
-                if (force) {
+                val hasSongs = repository.observeAllSongs().first().isNotEmpty()
+                if (force || !hasSongs) {
                     repository.rescanFull()
                 } else {
                     repository.rescanIncremental()

@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import com.example.tidemusic.ui.common.verticalScrollbar
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.CircularProgressIndicator
@@ -1283,11 +1284,13 @@ fun SongInfoContent(
     }
     val durMs = if (playbackDurationMs > 0) playbackDurationMs else song.durationMs
 
+    val infoScrollState = rememberScrollState()
     Column(
         Modifier
             .fillMaxWidth()
             .heightIn(max = 520.dp)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(infoScrollState)
+            .verticalScrollbar(infoScrollState)
             .padding(horizontal = 20.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1410,10 +1413,12 @@ fun AddToPlaylistDialog(
                 Spacer(Modifier.height(12.dp))
                 Text("Add to playlists", style = MaterialTheme.typography.titleMedium, color = TideColors.accent)
                 Spacer(Modifier.height(8.dp))
+                val playlistScrollState = rememberScrollState()
                 Column(
                     Modifier
                         .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(playlistScrollState)
+                        .verticalScrollbar(playlistScrollState),
                 ) {
                     playlists.forEach { pl ->
                         Row(

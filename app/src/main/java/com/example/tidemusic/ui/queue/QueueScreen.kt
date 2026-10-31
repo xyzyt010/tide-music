@@ -373,6 +373,7 @@ fun QueueScreen(onBack: () -> Unit) {
                                         try {
                                             controller?.seekToDefaultPosition(qs.originalIndex)
                                             controller?.play()
+                                            ServiceLocator.playbackController.savePlaybackState(immediateSongId = qs.song.id)
                                         } catch (_: Exception) {
                                         }
                                     },

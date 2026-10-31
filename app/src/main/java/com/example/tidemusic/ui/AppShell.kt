@@ -106,8 +106,6 @@ import com.example.tidemusic.R
 import com.example.tidemusic.Search
 import com.example.tidemusic.Settings as SettingsNavKey
 import com.example.tidemusic.SleepTimer
-import com.example.tidemusic.VoiceCommand
-import com.example.tidemusic.voice.VoiceCommandScreen
 import com.example.tidemusic.di.ServiceLocator
 import com.example.tidemusic.ui.albums.AlbumsScreen
 import com.example.tidemusic.ui.artists.ArtistsScreen
@@ -153,12 +151,11 @@ fun AppShell(initialDeepLink: String? = null) {
             currentKey == HelpInfo ||
             currentKey == SleepTimer
 
-    val sections = remember { listOf(Player, Queue, Albums, Playlists, Folders, Search, Download, Artists, VoiceCommand) }
+    val sections = remember { listOf(Player, Queue, Albums, Playlists, Folders, Search, Download, Artists) }
     val titles = remember {
         listOf(
             R.string.section_player, R.string.section_queue, R.string.section_albums, R.string.section_playlists,
-            R.string.section_folders, R.string.section_search, R.string.section_download, R.string.section_artists,
-            R.string.section_voice
+            R.string.section_folders, R.string.section_search, R.string.section_download, R.string.section_artists
         )
     }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { sections.size })
@@ -266,7 +263,6 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Search -> Icons.Rounded.Search
                                         Download -> Icons.Rounded.Download
                                         Artists -> Icons.Rounded.Person
-                                        VoiceCommand -> Icons.Rounded.AutoAwesome
                                         else -> Icons.Rounded.PlayArrow
                                     }
                                     val label = when (navKey) {
@@ -278,7 +274,6 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Search -> "Search"
                                         Download -> "Download"
                                         Artists -> "Artists"
-                                        VoiceCommand -> "Assistant"
                                         else -> ""
                                     }
                                     Column(
@@ -340,15 +335,6 @@ fun AppShell(initialDeepLink: String? = null) {
                                         }
                                         CenteredMenuItem(Icons.Rounded.Equalizer, "Equalizer") {
                                             menuOpen = false; backStack.add(EqualizerNavKey)
-                                        }
-                                        CenteredMenuItem(Icons.Rounded.AutoAwesome, "Assistant") {
-                                            menuOpen = false
-                                            val voiceIdx = sections.indexOf(VoiceCommand)
-                                            if (voiceIdx >= 0) {
-                                                scope.launch { pagerState.animateScrollToPage(voiceIdx) }
-                                            } else {
-                                                backStack.add(VoiceCommand)
-                                            }
                                         }
                                         CenteredMenuItem(Icons.Rounded.Refresh, "Scan Library") {
                                             menuOpen = false
@@ -424,7 +410,6 @@ fun AppShell(initialDeepLink: String? = null) {
                     entry<SettingsNavKey> { SettingsScreen(onBack = { backStack.removeLastOrNull() }) }
                     entry<HelpInfo> { HelpInfoScreen(onBack = { backStack.removeLastOrNull() }) }
                     entry<SleepTimer> { SleepTimerScreen(onBack = { backStack.removeLastOrNull() }) }
-                    entry<VoiceCommand> { VoiceCommandScreen() }
                 },
             )
         }
@@ -540,7 +525,6 @@ private fun ShellContents(
                     Search -> SearchScreen(isActive = pagerState.currentPage == page)
                     Download -> DownloadScreen()
                     Artists -> ArtistsScreen(onArtistClick = { id, name -> onOpenDetail(ArtistDetail(id, name)) })
-                    VoiceCommand -> VoiceCommandScreen()
                 }
             }
         }

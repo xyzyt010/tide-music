@@ -254,34 +254,8 @@ fun SongOverflowMenu(
             }
         }
 
-        CenteredMenuItem(Icons.Rounded.PlayArrow, "Play now") {
-            onDismiss()
-            try {
-                ServiceLocator.playbackController.setQueue(listOf(song), 0)
-            } catch (_: Exception) {
-                toast(context, "Could not start playback")
-            }
-        }
-
-        CenteredMenuItem(Icons.Rounded.Info, "Song info") {
-            onDismiss()
-            if (onShowInfo != null) onShowInfo() else showInfoSheet = true
-        }
-
-        CenteredMenuItem(Icons.Rounded.Description, "Add / Embed Lyrics (.lrc)") {
-            onDismiss()
-            lrcPickerLauncher.launch(arrayOf("*/*", "text/*", "application/octet-stream"))
-        }
-
-        if (showRemoveFromQueue && onRemoveFromQueue != null) {
-            CenteredMenuItem(Icons.Rounded.RemoveCircleOutline, "Remove from this queue") {
-                onDismiss(); onRemoveFromQueue()
-            }
-        }
-
-        CenteredMenuDivider()
-
-        CenteredMenuItem(Icons.Rounded.SkipNext, "Play after current song") {
+        // 1. First option: Play Next (plays this song next in queue)
+        CenteredMenuItem(Icons.Rounded.SkipNext, "Play Next") {
             onDismiss()
             if (onPlayAfterCurrent != null) {
                 onPlayAfterCurrent()
@@ -295,7 +269,18 @@ fun SongOverflowMenu(
             }
         }
 
-        CenteredMenuItem(Icons.Rounded.Queue, "Add to a queue") {
+        // 2. Play Now
+        CenteredMenuItem(Icons.Rounded.PlayArrow, "Play Now") {
+            onDismiss()
+            try {
+                ServiceLocator.playbackController.setQueue(listOf(song), 0)
+            } catch (_: Exception) {
+                toast(context, "Could not start playback")
+            }
+        }
+
+        // 3. Add to Queue
+        CenteredMenuItem(Icons.Rounded.Queue, "Add to Queue") {
             onDismiss()
             if (onAddToQueue != null) {
                 onAddToQueue()
@@ -309,7 +294,8 @@ fun SongOverflowMenu(
             }
         }
 
-        CenteredMenuItem(Icons.Rounded.PlaylistAdd, "Add to playlists") {
+        // 4. Add to Playlist
+        CenteredMenuItem(Icons.Rounded.PlaylistAdd, "Add to Playlist") {
             onDismiss()
             if (onAddToPlaylist != null) {
                 onAddToPlaylist()
@@ -318,31 +304,54 @@ fun SongOverflowMenu(
             }
         }
 
+        if (showRemoveFromQueue && onRemoveFromQueue != null) {
+            CenteredMenuItem(Icons.Rounded.RemoveCircleOutline, "Remove from Queue") {
+                onDismiss(); onRemoveFromQueue()
+            }
+        }
+
         CenteredMenuDivider()
 
-        CenteredMenuItem(Icons.Rounded.Edit, "Edit name / artist tags") {
+        // 5. Song Info
+        CenteredMenuItem(Icons.Rounded.Info, "Song Info") {
+            onDismiss()
+            if (onShowInfo != null) onShowInfo() else showInfoSheet = true
+        }
+
+        // 6. Lyrics
+        CenteredMenuItem(Icons.Rounded.Description, "Attach Lyrics (.lrc)") {
+            onDismiss()
+            lrcPickerLauncher.launch(arrayOf("*/*", "text/*", "application/octet-stream"))
+        }
+
+        // 7. Edit Tags
+        CenteredMenuItem(Icons.Rounded.Edit, "Edit Tags") {
             onDismiss()
             if (onEditTags != null) onEditTags()
             else showTagDialog = true
         }
 
-        CenteredMenuItem(Icons.Rounded.Notifications, "Set as ringtone") {
-            onDismiss()
-            setAsRingtoneSafe(context, song)
-        }
-
-        CenteredMenuItem(Icons.Rounded.Speed, "Play speed and Pitch") {
+        // 8. Speed & Pitch
+        CenteredMenuItem(Icons.Rounded.Speed, "Speed & Pitch") {
             onDismiss()
             if (onSpeedPitch != null) onSpeedPitch()
             else toast(context, "Open the player for speed & pitch")
         }
 
+        // 9. Set as Ringtone
+        CenteredMenuItem(Icons.Rounded.Notifications, "Set as Ringtone") {
+            onDismiss()
+            setAsRingtoneSafe(context, song)
+        }
+
+        // 10. Share
         CenteredMenuItem(Icons.Rounded.Share, "Share") {
             onDismiss()
             shareSongSafe(context, song)
         }
 
-        CenteredMenuItem(Icons.Rounded.Delete, "Delete permanently", destructive = true) {
+        // 11. Delete
+        CenteredMenuItem(Icons.Rounded.Delete, "Delete", destructive = true) {
             onDismiss()
             showDeleteConfirmDialog = true
         }

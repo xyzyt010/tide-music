@@ -1,5 +1,9 @@
 package com.example.tidemusic.ui.common
 
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.draw.drawWithContent
+import com.example.tidemusic.theme.Accent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -408,7 +412,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp)
+            .height(78.dp)
             .padding(0.dp)
             .clipToBounds()
             .background(surfaceColor)
@@ -519,46 +523,46 @@ fun MiniPlayerBar(onClick: () -> Unit) {
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         IconButton(
                             onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
-                            modifier = Modifier.size(38.dp),
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SkipPrevious,
                                 contentDescription = "Previous",
                                 tint = TideColors.textPrimary,
-                                modifier = Modifier.size(24.dp),
+                                modifier = Modifier.size(26.dp),
                             )
                         }
                         IconButton(
                             onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.togglePlayPause() },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(46.dp),
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = TideColors.textPrimary,
-                                modifier = Modifier.size(28.dp),
+                                modifier = Modifier.size(30.dp),
                             )
                         }
                         IconButton(
                             onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.next() },
-                            modifier = Modifier.size(38.dp),
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SkipNext,
                                 contentDescription = "Next",
                                 tint = TideColors.textPrimary,
-                                modifier = Modifier.size(24.dp),
+                                modifier = Modifier.size(26.dp),
                             )
                         }
                         IconButton(
                             onClick = {
                                 com.example.tidemusic.di.ServiceLocator.playbackController.cycleShuffleMode()
                             },
-                            modifier = Modifier.size(38.dp),
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -569,13 +573,13 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                                         else -> "Shuffle Off"
                                     },
                                     tint = if (isShuffleActive) TideColors.accent else TideColors.textSecondary,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(22.dp),
                                 )
                                 if (shuffleMode == com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL) {
                                     Text(
                                         text = "ALL",
                                         style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 6.5.sp,
+                                            fontSize = 7.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                         ),
                                         color = TideColors.accent,
@@ -1105,3 +1109,68 @@ fun SortDropdown(
         }
     }
 }
+
+/**
+ * Draws a thin, sleek vertical scrollbar indicator at the right edge of a scrollable container.
+ * Only renders when the content is actually scrollable (maxValue > 0).
+ */
+fun Modifier.verticalScrollbar(
+    scrollState: ScrollState,
+    color: Color = Accent.copy(alpha = 0.55f),
+    width: androidx.compose.ui.unit.Dp = 3.dp,
+    paddingEnd: androidx.compose.ui.unit.Dp = 2.dp,
+    paddingVertical: androidx.compose.ui.unit.Dp = 4.dp,
+    cornerRadius: androidx.compose.ui.unit.Dp = 1.5.dp,
+): Modifier = drawWithContent {
+    drawContent()
+    val totalHeight = size.height - (paddingVertical.toPx() * 2)
+    if (scrollState.maxValue > 0 && totalHeight > 0) {
+        val viewPortLength = totalHeight
+        val totalLength = viewPortLength + scrollState.maxValue
+        val thumbLength = (viewPortLength / totalLength * viewPortLength).coerceIn(16.dp.toPx(), viewPortLength)
+        val scrollOffset = scrollState.value.toFloat()
+        val scrollRatio = scrollOffset / scrollState.maxValue
+        val thumbOffset = paddingVertical.toPx() + (scrollRatio * (viewPortLength - thumbLength))
+
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(size.width - width.toPx() - paddingEnd.toPx(), thumbOffset),
+            size = Size(width.toPx(), thumbLength),
+            cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+        )
+    }
+}
+
+/**
+ * Draws a thin, sleek vertical scrollbar indicator at the right edge of a LazyColumn.
+ */
+fun Modifier.verticalScrollbar(
+    lazyListState: LazyListState,
+    color: Color = Accent.copy(alpha = 0.55f),
+    width: androidx.compose.ui.unit.Dp = 3.dp,
+    paddingEnd: androidx.compose.ui.unit.Dp = 2.dp,
+    paddingVertical: androidx.compose.ui.unit.Dp = 4.dp,
+    cornerRadius: androidx.compose.ui.unit.Dp = 1.5.dp,
+): Modifier = drawWithContent {
+    drawContent()
+    val layoutInfo = lazyListState.layoutInfo
+    val totalItems = layoutInfo.totalItemsCount
+    val visibleItems = layoutInfo.visibleItemsInfo
+    if (totalItems > 0 && visibleItems.isNotEmpty() && visibleItems.size < totalItems) {
+        val totalHeight = size.height - (paddingVertical.toPx() * 2)
+        if (totalHeight > 0) {
+            val thumbLength = (visibleItems.size.toFloat() / totalItems * totalHeight).coerceIn(16.dp.toPx(), totalHeight)
+            val firstVisibleIndex = lazyListState.firstVisibleItemIndex.toFloat()
+            val scrollRatio = (firstVisibleIndex / (totalItems - visibleItems.size)).coerceIn(0f, 1f)
+            val thumbOffset = paddingVertical.toPx() + (scrollRatio * (totalHeight - thumbLength))
+
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(size.width - width.toPx() - paddingEnd.toPx(), thumbOffset),
+                size = Size(width.toPx(), thumbLength),
+                cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+            )
+        }
+    }
+}
+
