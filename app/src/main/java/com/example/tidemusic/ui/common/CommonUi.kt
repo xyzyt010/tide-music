@@ -680,9 +680,14 @@ fun ArtworkTile(song: Song, size: Dp, rounded: Dp = 6.dp) {
     }
 }
 
-/** Large player artwork: real cover art, or a rotating dark grey-scaled vinyl disc on black. */
+/** Large player artwork: real cover art with adaptive aspect ratio display, or a rotating vinyl disc. */
 @Composable
-fun PlayerArtwork(song: Song, size: Dp, isPlaying: Boolean = true) {
+fun PlayerArtwork(
+    song: Song,
+    size: Dp? = null,
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = true,
+) {
     val artworkModel = remember(song.id, song.filePath, song.uri, song.dateModified) {
         com.example.tidemusic.util.SongArtworkRequest(
             songId = song.id,
@@ -694,24 +699,26 @@ fun PlayerArtwork(song: Song, size: Dp, isPlaying: Boolean = true) {
     var imageSuccess by remember(song.id) { mutableStateOf(false) }
 
     Box(
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.Black, shape = RoundedCornerShape(14.dp)),
+        modifier = modifier
+            .then(if (size != null) Modifier.size(size) else Modifier)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Black.copy(alpha = 0.45f), shape = RoundedCornerShape(18.dp)),
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
             model = artworkModel,
             contentDescription = song.title,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(18.dp)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             onState = { state ->
                 imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
             },
         )
         if (!imageSuccess) {
             VinylDiscPlaceholder(
-                modifier = Modifier.fillMaxSize(0.78f),
+                modifier = Modifier.size(260.dp),
                 spinning = isPlaying,
             )
         }
@@ -1116,7 +1123,8 @@ fun SortDropdown(
  */
 fun Modifier.verticalScrollbar(
     scrollState: ScrollState,
-    color: Color = Accent.copy(alpha = 0.55f),
+    color: Color = Color.White.copy(alpha = 0.85f),
+    trackColor: Color = Color.White.copy(alpha = 0.12f),
     width: androidx.compose.ui.unit.Dp = 3.dp,
     paddingEnd: androidx.compose.ui.unit.Dp = 2.dp,
     paddingVertical: androidx.compose.ui.unit.Dp = 4.dp,
@@ -1127,14 +1135,23 @@ fun Modifier.verticalScrollbar(
     if (scrollState.maxValue > 0 && totalHeight > 0) {
         val viewPortLength = totalHeight
         val totalLength = viewPortLength + scrollState.maxValue
-        val thumbLength = (viewPortLength / totalLength * viewPortLength).coerceIn(16.dp.toPx(), viewPortLength)
-        val scrollOffset = scrollState.value.toFloat()
-        val scrollRatio = scrollOffset / scrollState.maxValue
+        val thumbLength = (viewPortLength / totalLength * viewPortLength).coerceIn(20.dp.toPx(), viewPortLength)
+        val scrollRatio = (scrollState.value.toFloat() / scrollState.maxValue).coerceIn(0f, 1f)
         val thumbOffset = paddingVertical.toPx() + (scrollRatio * (viewPortLength - thumbLength))
+        val xPos = size.width - width.toPx() - paddingEnd.toPx()
 
+        // Subtle track showing full scrollable extent
+        drawRoundRect(
+            color = trackColor,
+            topLeft = Offset(xPos, paddingVertical.toPx()),
+            size = Size(width.toPx(), viewPortLength),
+            cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+        )
+
+        // Active white thumb showing exact viewing position
         drawRoundRect(
             color = color,
-            topLeft = Offset(size.width - width.toPx() - paddingEnd.toPx(), thumbOffset),
+            topLeft = Offset(xPos, thumbOffset),
             size = Size(width.toPx(), thumbLength),
             cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
         )
@@ -1143,10 +1160,12 @@ fun Modifier.verticalScrollbar(
 
 /**
  * Draws a thin, sleek vertical scrollbar indicator at the right edge of a LazyColumn.
+ * Computes exact fractional scroll position continuously without jumping.
  */
 fun Modifier.verticalScrollbar(
     lazyListState: LazyListState,
-    color: Color = Accent.copy(alpha = 0.55f),
+    color: Color = Color.White.copy(alpha = 0.85f),
+    trackColor: Color = Color.White.copy(alpha = 0.12f),
     width: androidx.compose.ui.unit.Dp = 3.dp,
     paddingEnd: androidx.compose.ui.unit.Dp = 2.dp,
     paddingVertical: androidx.compose.ui.unit.Dp = 4.dp,
@@ -1159,14 +1178,32 @@ fun Modifier.verticalScrollbar(
     if (totalItems > 0 && visibleItems.isNotEmpty() && visibleItems.size < totalItems) {
         val totalHeight = size.height - (paddingVertical.toPx() * 2)
         if (totalHeight > 0) {
-            val thumbLength = (visibleItems.size.toFloat() / totalItems * totalHeight).coerceIn(16.dp.toPx(), totalHeight)
-            val firstVisibleIndex = lazyListState.firstVisibleItemIndex.toFloat()
-            val scrollRatio = (firstVisibleIndex / (totalItems - visibleItems.size)).coerceIn(0f, 1f)
-            val thumbOffset = paddingVertical.toPx() + (scrollRatio * (totalHeight - thumbLength))
+            val visibleCount = visibleItems.size.toFloat()
+            val firstItem = visibleItems.first()
+            val lastItem = visibleItems.last()
+            val avgItemSize = ((lastItem.offset + lastItem.size - firstItem.offset).toFloat() / visibleCount).coerceAtLeast(1f)
+            val estimatedTotalSize = totalItems * avgItemSize
+            val viewportSize = totalHeight
 
+            val currentScrollOffset = (lazyListState.firstVisibleItemIndex * avgItemSize) + lazyListState.firstVisibleItemScrollOffset
+            val maxScrollOffset = (estimatedTotalSize - viewportSize).coerceAtLeast(1f)
+            val scrollRatio = (currentScrollOffset / maxScrollOffset).coerceIn(0f, 1f)
+            val thumbLength = ((viewportSize / estimatedTotalSize) * viewportSize).coerceIn(24.dp.toPx(), viewportSize)
+            val thumbOffset = paddingVertical.toPx() + (scrollRatio * (viewportSize - thumbLength))
+            val xPos = size.width - width.toPx() - paddingEnd.toPx()
+
+            // Subtle track showing full list extent
+            drawRoundRect(
+                color = trackColor,
+                topLeft = Offset(xPos, paddingVertical.toPx()),
+                size = Size(width.toPx(), viewportSize),
+                cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+            )
+
+            // Active white thumb showing exact viewing position in list
             drawRoundRect(
                 color = color,
-                topLeft = Offset(size.width - width.toPx() - paddingEnd.toPx(), thumbOffset),
+                topLeft = Offset(xPos, thumbOffset),
                 size = Size(width.toPx(), thumbLength),
                 cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
             )

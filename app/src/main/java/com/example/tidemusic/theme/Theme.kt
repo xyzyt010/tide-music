@@ -90,20 +90,150 @@ fun TideMusicTheme(
     content: @Composable () -> Unit,
 ) {
     val isDarkMode by ServiceLocator.settingsManager.isDarkMode.collectAsState()
+    val customThemeInt by ServiceLocator.settingsManager.customThemeColor.collectAsState()
+    val customHighlightInt by ServiceLocator.settingsManager.customHighlightColor.collectAsState()
+    val customTextInt by ServiceLocator.settingsManager.customTextColor.collectAsState()
 
-    val palette = if (isDarkMode) TidePalette() else TidePalette(
-        background = LightBackground,
-        surface = LightSurface,
-        surfaceElevated = LightSurfaceElevated,
-        outline = LightOutline,
-        textPrimary = LightTextPrimary,
-        textSecondary = LightTextSecondary,
-        accent = LightAccent,
-        accentPressed = LightAccentVariant,
+    val baseBackground = customThemeInt?.let { Color(it) }
+        ?: if (isDarkMode) Background else LightBackground
+
+    val isDark = customThemeInt?.let {
+        val c = Color(it)
+        (0.299f * c.red + 0.587f * c.green + 0.114f * c.blue) < 0.5f
+    } ?: isDarkMode
+
+    val baseSurface = customThemeInt?.let {
+        val c = Color(it)
+        if (isDark) {
+            Color(
+                red = (c.red + 0.05f).coerceAtMost(1f),
+                green = (c.green + 0.05f).coerceAtMost(1f),
+                blue = (c.blue + 0.05f).coerceAtMost(1f),
+                alpha = 1f
+            )
+        } else {
+            Color(
+                red = (c.red - 0.04f).coerceAtLeast(0f),
+                green = (c.green - 0.04f).coerceAtLeast(0f),
+                blue = (c.blue - 0.04f).coerceAtLeast(0f),
+                alpha = 1f
+            )
+        }
+    } ?: if (isDarkMode) Surface else LightSurface
+
+    val baseSurfaceElevated = customThemeInt?.let {
+        val c = Color(it)
+        if (isDark) {
+            Color(
+                red = (c.red + 0.09f).coerceAtMost(1f),
+                green = (c.green + 0.09f).coerceAtMost(1f),
+                blue = (c.blue + 0.09f).coerceAtMost(1f),
+                alpha = 1f
+            )
+        } else {
+            Color(
+                red = (c.red - 0.08f).coerceAtLeast(0f),
+                green = (c.green - 0.08f).coerceAtLeast(0f),
+                blue = (c.blue - 0.08f).coerceAtLeast(0f),
+                alpha = 1f
+            )
+        }
+    } ?: if (isDarkMode) SurfaceElevated else LightSurfaceElevated
+
+    val baseOutline = customThemeInt?.let {
+        val c = Color(it)
+        if (isDark) {
+            Color(
+                red = (c.red + 0.14f).coerceAtMost(1f),
+                green = (c.green + 0.14f).coerceAtMost(1f),
+                blue = (c.blue + 0.14f).coerceAtMost(1f),
+                alpha = 1f
+            )
+        } else {
+            Color(
+                red = (c.red - 0.14f).coerceAtLeast(0f),
+                green = (c.green - 0.14f).coerceAtLeast(0f),
+                blue = (c.blue - 0.14f).coerceAtLeast(0f),
+                alpha = 1f
+            )
+        }
+    } ?: if (isDarkMode) Outline else LightOutline
+
+    val baseTextPrimary = customTextInt?.let { Color(it) }
+        ?: if (isDark) TextPrimary else LightTextPrimary
+
+    val baseTextSecondary = customTextInt?.let {
+        Color(it).copy(alpha = 0.65f)
+    } ?: if (isDark) TextSecondary else LightTextSecondary
+
+    val baseAccent = customHighlightInt?.let { Color(it) }
+        ?: if (isDarkMode) Accent else LightAccent
+
+    val baseAccentPressed = customHighlightInt?.let {
+        val c = Color(it)
+        Color(
+            red = (c.red * 0.82f).coerceIn(0f, 1f),
+            green = (c.green * 0.82f).coerceIn(0f, 1f),
+            blue = (c.blue * 0.82f).coerceIn(0f, 1f),
+            alpha = 1f
+        )
+    } ?: if (isDarkMode) AccentVariant else LightAccentVariant
+
+    val palette = TidePalette(
+        background = baseBackground,
+        surface = baseSurface,
+        surfaceElevated = baseSurfaceElevated,
+        outline = baseOutline,
+        textPrimary = baseTextPrimary,
+        textSecondary = baseTextSecondary,
+        accent = baseAccent,
+        accentPressed = baseAccentPressed,
+        error = Error,
     )
+
+    val colorScheme = if (isDark) {
+        DarkColorScheme.copy(
+            primary = baseAccent,
+            secondary = baseAccent,
+            tertiary = baseAccent,
+            background = baseBackground,
+            onBackground = baseTextPrimary,
+            surface = baseSurface,
+            onSurface = baseTextPrimary,
+            surfaceVariant = baseSurfaceElevated,
+            onSurfaceVariant = baseTextSecondary,
+            surfaceContainer = baseSurface,
+            surfaceContainerHigh = baseSurfaceElevated,
+            surfaceContainerHighest = baseSurfaceElevated,
+            surfaceContainerLow = baseBackground,
+            surfaceContainerLowest = baseBackground,
+            outline = baseOutline,
+            outlineVariant = baseOutline,
+        )
+    } else {
+        LightColorScheme.copy(
+            primary = baseAccent,
+            secondary = baseAccent,
+            tertiary = baseAccent,
+            background = baseBackground,
+            onBackground = baseTextPrimary,
+            surface = baseSurface,
+            onSurface = baseTextPrimary,
+            surfaceVariant = baseSurfaceElevated,
+            onSurfaceVariant = baseTextSecondary,
+            surfaceContainer = baseSurface,
+            surfaceContainerHigh = baseSurfaceElevated,
+            surfaceContainerHighest = baseSurfaceElevated,
+            surfaceContainerLow = baseBackground,
+            surfaceContainerLowest = baseBackground,
+            outline = baseOutline,
+            outlineVariant = baseOutline,
+        )
+    }
+
     CompositionLocalProvider(LocalTidePalette provides palette) {
         MaterialTheme(
-            colorScheme = if (isDarkMode) DarkColorScheme else LightColorScheme,
+            colorScheme = colorScheme,
             typography = Typography,
             content = content,
         )

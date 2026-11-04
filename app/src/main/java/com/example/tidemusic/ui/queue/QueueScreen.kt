@@ -58,6 +58,7 @@ import com.example.tidemusic.ui.common.rememberMultiSelectState
 import com.example.tidemusic.ui.common.SortCriteria
 import com.example.tidemusic.ui.common.SortDropdown
 import com.example.tidemusic.ui.common.compareWith
+import com.example.tidemusic.ui.common.verticalScrollbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -272,7 +273,9 @@ fun QueueScreen(onBack: () -> Unit) {
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScrollbar(listState),
                 ) {
                     itemsIndexed(
                         displaySongs,

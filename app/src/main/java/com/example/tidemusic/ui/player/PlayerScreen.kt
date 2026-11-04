@@ -447,7 +447,7 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 76.dp),
+                    .padding(bottom = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 var playerViewPage by remember { mutableIntStateOf(0) }
@@ -455,14 +455,14 @@ fun PlayerScreen(
 
                 Box(
                     modifier = Modifier
-                        .sizeIn(maxWidth = 280.dp, maxHeight = 280.dp)
-                        .aspectRatio(1f)
+                        .fillMaxWidth()
+                        .weight(1f)
                         .pointerInput(playerViewPage) {
                             detectHorizontalDragGestures(
                                 onDragEnd = {
-                                    if (swipeDragOffset < -40f && playerViewPage == 0) {
+                                    if (swipeDragOffset < -35f && playerViewPage == 0) {
                                         playerViewPage = 1 // Swiped left -> show lyrics
-                                    } else if (swipeDragOffset > 40f && playerViewPage == 1) {
+                                    } else if (swipeDragOffset > 35f && playerViewPage == 1) {
                                         playerViewPage = 0 // Swiped right -> show artwork
                                     }
                                     swipeDragOffset = 0f
@@ -492,13 +492,28 @@ fun PlayerScreen(
                         label = "PlayerViewSwitch"
                     ) { page ->
                         if (page == 0) {
-                            PlayerArtwork(song = s, size = 280.dp, isPlaying = isPlaying)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                PlayerArtwork(
+                                    song = s,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.92f)
+                                        .heightIn(max = 330.dp),
+                                    isPlaying = isPlaying,
+                                )
+                            }
                         } else {
                             LyricsCanvasView(
                                 song = s,
                                 positionMs = position.toLong(),
                                 onSeek = { controller?.seekTo(it) },
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 4.dp),
                             )
                         }
                     }
@@ -506,26 +521,26 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Animated 2-dot / oval pill indicator
+                // Animated 2-dot / oval pill indicator in pure white
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     for (i in 0..1) {
                         val isSelected = playerViewPage == i
-                        val targetWidth = if (isSelected) 18.dp else 6.dp
+                        val targetWidth = if (isSelected) 20.dp else 6.dp
                         val widthAnim by animateDpAsState(
                             targetValue = targetWidth,
                             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                             label = "indicatorWidth"
                         )
-                        val color = if (isSelected) TideColors.accent else Color.White.copy(alpha = 0.35f)
+                        val color = if (isSelected) Color.White else Color.White.copy(alpha = 0.35f)
 
                         Box(
                             modifier = Modifier
                                 .width(widthAnim)
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(2.5.dp))
                                 .background(color)
                                 .clickable {
                                     playerViewPage = i
@@ -534,7 +549,7 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(0.55f))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -543,32 +558,34 @@ fun PlayerScreen(
                     Text(
                         text = s.title.ifBlank { "Unknown" },
                         style = MaterialTheme.typography.titleLarge.copy(
-                            fontSize = 20.sp,
+                            fontSize = 21.sp,
                             fontWeight = FontWeight.Bold,
                         ),
                         color = TideColors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = s.artist.ifBlank { "<unknown>" },
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp),
                         color = TideColors.textPrimary.copy(alpha = 0.75f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = s.album.ifBlank { "<unknown>" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TideColors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (s.album.isNotBlank() && s.album != "<unknown>") {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = s.album,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            color = TideColors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Clean action row: Favorite, Repeat, Shuffle, 3-dot Menu (no clutter!)
                 Row(
@@ -681,7 +698,7 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Seek bar
                 var sliderPosition by remember { mutableStateOf<Float?>(null) }
@@ -788,7 +805,7 @@ fun PlayerScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Transport controls: Previous, Play/Pause, Next
                 Row(
@@ -821,7 +838,7 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -1038,16 +1055,6 @@ private fun PlayerOverflowMenu(
         CenteredMenuItem(Icons.Rounded.Description, "Add / Embed Lyrics (.lrc)") {
             onDismiss()
             lrcPickerLauncher.launch(arrayOf("*/*", "text/*", "application/octet-stream"))
-        }
-        val autoScrollSetting by com.example.tidemusic.di.ServiceLocator.settingsManager.isLyricsAutoScrollEnabled.collectAsState()
-        CenteredMenuItem(
-            if (autoScrollSetting) Icons.Rounded.Autorenew else Icons.AutoMirrored.Rounded.FormatAlignLeft,
-            if (autoScrollSetting) "Lyrics Auto-Scroll: ON" else "Lyrics Auto-Scroll: OFF"
-        ) {
-            onDismiss()
-            val next = !autoScrollSetting
-            com.example.tidemusic.di.ServiceLocator.settingsManager.setLyricsAutoScrollEnabled(next)
-            android.widget.Toast.makeText(context, if (next) "Lyrics Auto-Scroll: ON" else "Lyrics Auto-Scroll: OFF", android.widget.Toast.LENGTH_SHORT).show()
         }
         CenteredMenuItem(Icons.Rounded.MusicNote, "Show lyrics") {
             onDismiss()
@@ -1493,21 +1500,18 @@ fun LyricsCanvasView(
 ) {
     var lyrics by remember(song.id) { mutableStateOf<SongLyrics?>(null) }
     var isLoading by remember(song.id) { mutableStateOf(true) }
-    var isAutoScroll by remember(song.id) { mutableStateOf(true) }
 
     LaunchedEffect(song.id) {
         isLoading = true
         lyrics = LyricsHelper.loadLyrics(song)
         isLoading = false
-        isAutoScroll = true
     }
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.Black.copy(alpha = 0.58f))
-            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Black.copy(alpha = 0.28f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         val currentLyrics = lyrics
@@ -1551,9 +1555,9 @@ fun LyricsCanvasView(
                 if (idx >= 0) idx else 0
             }
 
-            // Auto-scroll to center active lyric whenever song progresses, seek occurs, or user releases touch
-            LaunchedEffect(activeIndex, isAutoScroll, listState.isScrollInProgress) {
-                if (isAutoScroll && !listState.isScrollInProgress && activeIndex in currentLyrics.lines.indices) {
+            // Always automatically scroll to center active lyric as song plays or seeks
+            LaunchedEffect(activeIndex, listState.isScrollInProgress) {
+                if (!listState.isScrollInProgress && activeIndex in currentLyrics.lines.indices) {
                     try {
                         listState.animateScrollToItem(
                             index = activeIndex,
@@ -1564,18 +1568,20 @@ fun LyricsCanvasView(
             }
 
             BoxWithConstraints(Modifier.fillMaxSize()) {
-                val verticalCenterPadding = (maxHeight / 2 - 28.dp).coerceAtLeast(16.dp)
+                val verticalCenterPadding = (maxHeight / 2 - 32.dp).coerceAtLeast(16.dp)
 
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScrollbar(listState),
                     contentPadding = PaddingValues(top = verticalCenterPadding, bottom = verticalCenterPadding),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     itemsIndexed(currentLyrics.lines, key = { index, item -> "${index}_${item.timestampMs}" }) { index, line ->
                         val isActive = index == activeIndex
                         val textColor by androidx.compose.animation.animateColorAsState(
-                            targetValue = if (isActive) Color.White else Color.White.copy(alpha = 0.32f),
+                            targetValue = if (isActive) Color.White else Color.White.copy(alpha = 0.38f),
                             animationSpec = tween(durationMillis = 280),
                             label = "lyricColor"
                         )
@@ -1584,15 +1590,15 @@ fun LyricsCanvasView(
                             text = line.text,
                             style = if (isActive) {
                                 MaterialTheme.typography.titleMedium.copy(
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    lineHeight = 26.sp,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    lineHeight = 34.sp,
                                 )
                             } else {
                                 MaterialTheme.typography.bodyMedium.copy(
-                                    fontSize = 15.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.Medium,
-                                    lineHeight = 22.sp,
+                                    lineHeight = 26.sp,
                                 )
                             },
                             color = textColor,
@@ -1600,58 +1606,33 @@ fun LyricsCanvasView(
                                 .fillMaxWidth()
                                 .clickable {
                                     onSeek(line.timestampMs)
-                                    isAutoScroll = true
                                 }
-                                .padding(vertical = 4.dp, horizontal = 8.dp),
+                                .padding(vertical = 4.dp, horizontal = 12.dp),
                             textAlign = TextAlign.Center,
                         )
                     }
                 }
-
-                // Single toggle action button:
-                // When in Auto mode -> Shows "Manual" (clicking it enters Manual mode)
-                // When in Manual mode -> Shows "Auto-Scroll" (clicking it enters Auto mode)
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isAutoScroll) TideColors.accent.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.16f))
-                        .clickable {
-                            isAutoScroll = !isAutoScroll
-                        }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = if (isAutoScroll) Icons.AutoMirrored.Rounded.FormatAlignLeft else Icons.Rounded.Autorenew,
-                        contentDescription = null,
-                        tint = if (isAutoScroll) TideColors.accent else Color.White,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = if (isAutoScroll) "Manual" else "Auto-Scroll",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                        color = if (isAutoScroll) TideColors.accent else Color.White,
-                    )
-                }
             }
         } else {
-            // Plain text unsynchronized lyrics
+            // Plain text unsynchronized lyrics with generous readable typography
+            val listState = rememberLazyListState()
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScrollbar(listState),
                 contentPadding = PaddingValues(vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(currentLyrics.plainLines) { line ->
                     Text(
                         text = line,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp,
+                            fontSize = 17.sp,
+                            lineHeight = 26.sp,
                         ),
                         color = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         textAlign = TextAlign.Center,
                     )
                 }

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.example.tidemusic.ui.common.verticalScrollbar
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -169,6 +171,7 @@ fun SearchScreen(
     val multiSelect = rememberMultiSelectState()
     val playlists by ServiceLocator.repository.observePlaylists().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    val searchListState = rememberLazyListState()
     
     var sortCriteria by remember { mutableStateOf<List<SortCriteria>>(emptyList()) }
     var showSortDropdown by remember { mutableStateOf(false) }
@@ -279,7 +282,12 @@ fun SearchScreen(
         }
         
         Box(Modifier.fillMaxSize()) {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = searchListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScrollbar(searchListState)
+            ) {
                 if (query.isBlank()) {
                     if (history.isNotEmpty()) {
                         item {

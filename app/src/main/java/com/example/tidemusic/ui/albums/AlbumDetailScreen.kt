@@ -48,6 +48,7 @@ import com.example.tidemusic.ui.common.MultiSelectActionBar
 import com.example.tidemusic.ui.common.SongRow
 import com.example.tidemusic.ui.common.SortCriteria
 import com.example.tidemusic.ui.common.SortDropdown
+import com.example.tidemusic.ui.common.verticalScrollbar
 import com.example.tidemusic.ui.common.ThinTopBar
 import com.example.tidemusic.ui.common.applySortCriteria
 import com.example.tidemusic.ui.common.rememberMultiSelectState
@@ -143,7 +144,9 @@ fun AlbumDetailScreen(
         Box(Modifier.weight(1f)) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScrollbar(listState)
             ) {
                 item {
                     Column(

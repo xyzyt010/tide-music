@@ -17,6 +17,51 @@ class SettingsManager(context: Context) {
         _isDarkMode.value = enabled
     }
 
+    /** Custom theme (background) color in ARGB Int, or null for default OLED black / white. */
+    private val _customThemeColor = MutableStateFlow<Int?>(
+        if (prefs.contains("custom_theme_color")) prefs.getInt("custom_theme_color", 0) else null
+    )
+    val customThemeColor: StateFlow<Int?> = _customThemeColor
+
+    fun setCustomThemeColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_theme_color").apply()
+        } else {
+            prefs.edit().putInt("custom_theme_color", color).apply()
+        }
+        _customThemeColor.value = color
+    }
+
+    /** Custom highlight (accent) color in ARGB Int, or null for default #0781FA. */
+    private val _customHighlightColor = MutableStateFlow<Int?>(
+        if (prefs.contains("custom_highlight_color")) prefs.getInt("custom_highlight_color", 0) else null
+    )
+    val customHighlightColor: StateFlow<Int?> = _customHighlightColor
+
+    fun setCustomHighlightColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_highlight_color").apply()
+        } else {
+            prefs.edit().putInt("custom_highlight_color", color).apply()
+        }
+        _customHighlightColor.value = color
+    }
+
+    /** Custom primary text color in ARGB Int, or null for default white/black. */
+    private val _customTextColor = MutableStateFlow<Int?>(
+        if (prefs.contains("custom_text_color")) prefs.getInt("custom_text_color", 0) else null
+    )
+    val customTextColor: StateFlow<Int?> = _customTextColor
+
+    fun setCustomTextColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_text_color").apply()
+        } else {
+            prefs.edit().putInt("custom_text_color", color).apply()
+        }
+        _customTextColor.value = color
+    }
+
     /** Frosted-glass (blurred artwork backdrop) effects on the player & mini-player. */
     private val _isGlassEffectsEnabled = MutableStateFlow(prefs.getBoolean("glass_effects", true))
     val isGlassEffectsEnabled: StateFlow<Boolean> = _isGlassEffectsEnabled

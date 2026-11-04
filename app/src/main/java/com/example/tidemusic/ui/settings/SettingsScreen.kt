@@ -1,19 +1,25 @@
 package com.example.tidemusic.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -28,34 +34,62 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.example.tidemusic.di.ServiceLocator
+import com.example.tidemusic.theme.Accent
+import com.example.tidemusic.theme.Background
+import com.example.tidemusic.theme.LightBackground
+import com.example.tidemusic.theme.LightTextPrimary
+import com.example.tidemusic.theme.TextPrimary
 import com.example.tidemusic.theme.TideColors
+import com.example.tidemusic.ui.common.ThinTopBar
+import com.example.tidemusic.ui.common.verticalScrollbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.example.tidemusic.ui.common.ThinTopBar
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    var activeColorPickerTarget by remember { mutableStateOf<ColorTarget?>(null) }
+
+    val isDarkMode by ServiceLocator.settingsManager.isDarkMode.collectAsState()
+    val customThemeInt by ServiceLocator.settingsManager.customThemeColor.collectAsState()
+    val customHighlightInt by ServiceLocator.settingsManager.customHighlightColor.collectAsState()
+    val customTextInt by ServiceLocator.settingsManager.customTextColor.collectAsState()
+
+    fun formatHex(c: Color): String {
+        val r = (c.red * 255).toInt().coerceIn(0, 255)
+        val g = (c.green * 255).toInt().coerceIn(0, 255)
+        val b = (c.blue * 255).toInt().coerceIn(0, 255)
+        return String.format("#%02X%02X%02X", r, g, b)
+    }
+
+    val currentThemeColor = customThemeInt?.let { Color(it) } ?: if (isDarkMode) Background else LightBackground
+    val currentHighlightColor = customHighlightInt?.let { Color(it) } ?: Accent
+    val currentTextColor = customTextInt?.let { Color(it) } ?: if (isDarkMode) TextPrimary else LightTextPrimary
+
+    val scrollState = rememberScrollState()
 
     Column(Modifier.fillMaxSize()) {
         ThinTopBar(title = "Settings", onBack = onBack)
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
+                .verticalScrollbar(scrollState)
                 .padding(16.dp),
         ) {
             // ── Theme & Appearance ──────────────────────────────────
             Text(
-                "Appearance",
+                "Appearance & Colors",
                 style = MaterialTheme.typography.titleSmall,
                 color = TideColors.textSecondary,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            val isDarkMode by ServiceLocator.settingsManager.isDarkMode.collectAsState()
             SettingsRow(
                 icon = Icons.Rounded.MusicNote,
                 title = "Dark theme",
@@ -80,6 +114,81 @@ fun SettingsScreen(onBack: () -> Unit) {
                         onCheckedChange = { ServiceLocator.settingsManager.setGlassEffectsEnabled(it) },
                         colors = SwitchDefaults.colors(checkedTrackColor = TideColors.accent),
                     )
+                },
+            )
+
+            // Custom Highlight / Accent RGB Selector
+            SettingsRow(
+                icon = Icons.Rounded.Palette,
+                title = "Highlight color",
+                subtitle = "RGB & Hex selector for controls, tabs, and accents",
+                onClick = { activeColorPickerTarget = ColorTarget.HIGHLIGHT },
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(currentHighlightColor)
+                                .border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                        )
+                        Spacer(Modifier.padding(start = 6.dp))
+                        Text(
+                            text = formatHex(currentHighlightColor),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TideColors.textSecondary,
+                        )
+                    }
+                },
+            )
+
+            // Custom Theme / Background RGB Selector
+            SettingsRow(
+                icon = Icons.Rounded.Palette,
+                title = "Theme color",
+                subtitle = "Custom RGB & Hex background theme color",
+                onClick = { activeColorPickerTarget = ColorTarget.THEME },
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(currentThemeColor)
+                                .border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                        )
+                        Spacer(Modifier.padding(start = 6.dp))
+                        Text(
+                            text = formatHex(currentThemeColor),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TideColors.textSecondary,
+                        )
+                    }
+                },
+            )
+
+            // Custom Text Color RGB Selector
+            SettingsRow(
+                icon = Icons.Rounded.Palette,
+                title = "Text color",
+                subtitle = "Custom RGB & Hex color for titles and primary text",
+                onClick = { activeColorPickerTarget = ColorTarget.TEXT },
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(currentTextColor)
+                                .border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                        )
+                        Spacer(Modifier.padding(start = 6.dp))
+                        Text(
+                            text = formatHex(currentTextColor),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TideColors.textSecondary,
+                        )
+                    }
                 },
             )
 
@@ -244,6 +353,34 @@ fun SettingsScreen(onBack: () -> Unit) {
                 subtitle = "yt-dlp downloads are forced to IPv4",
             )
         }
+    }
+
+    activeColorPickerTarget?.let { target ->
+        val (initialColor, defaultColor) = when (target) {
+            ColorTarget.THEME -> currentThemeColor to (if (isDarkMode) Background else LightBackground)
+            ColorTarget.HIGHLIGHT -> currentHighlightColor to Accent
+            ColorTarget.TEXT -> currentTextColor to (if (isDarkMode) TextPrimary else LightTextPrimary)
+        }
+        RgbColorPickerDialog(
+            target = target,
+            initialColor = initialColor,
+            defaultColor = defaultColor,
+            onColorSelected = { selectedColor ->
+                when (target) {
+                    ColorTarget.THEME -> ServiceLocator.settingsManager.setCustomThemeColor(selectedColor.toArgb())
+                    ColorTarget.HIGHLIGHT -> ServiceLocator.settingsManager.setCustomHighlightColor(selectedColor.toArgb())
+                    ColorTarget.TEXT -> ServiceLocator.settingsManager.setCustomTextColor(selectedColor.toArgb())
+                }
+            },
+            onResetToDefault = {
+                when (target) {
+                    ColorTarget.THEME -> ServiceLocator.settingsManager.setCustomThemeColor(null)
+                    ColorTarget.HIGHLIGHT -> ServiceLocator.settingsManager.setCustomHighlightColor(null)
+                    ColorTarget.TEXT -> ServiceLocator.settingsManager.setCustomTextColor(null)
+                }
+            },
+            onDismiss = { activeColorPickerTarget = null }
+        )
     }
 }
 

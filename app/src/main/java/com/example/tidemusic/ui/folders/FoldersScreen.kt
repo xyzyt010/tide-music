@@ -46,6 +46,7 @@ import com.example.tidemusic.domain.Folder
 import com.example.tidemusic.domain.LibraryRepository
 import com.example.tidemusic.theme.TideColors
 import com.example.tidemusic.ui.common.ThinTopBar
+import com.example.tidemusic.ui.common.verticalScrollbar
 import com.example.tidemusic.ui.rememberTideViewModel
 import com.example.tidemusic.util.formatAggregateDuration
 import com.example.tidemusic.util.formatCount
@@ -132,7 +133,11 @@ fun FoldersScreen(
         val listState = com.example.tidemusic.ui.common.rememberScrollMemoryState("folders_list", roots.size)
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().weight(1f).padding(top = 8.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .padding(top = 8.dp)
+                .verticalScrollbar(listState)
         ) {
             items(roots, key = { it.id }) { folder ->
                 FolderRow(

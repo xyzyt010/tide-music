@@ -33,6 +33,7 @@ import com.example.tidemusic.ui.common.MultiSelectActionBar
 import com.example.tidemusic.ui.common.SongRow
 import com.example.tidemusic.ui.common.ThinTopBar
 import com.example.tidemusic.ui.common.rememberMultiSelectState
+import com.example.tidemusic.ui.common.verticalScrollbar
 import com.example.tidemusic.ui.rememberTideViewModel
 import com.example.tidemusic.util.formatAggregateDuration
 import com.example.tidemusic.util.formatCount
@@ -138,7 +139,9 @@ fun FolderDetailScreen(
         Box(Modifier.weight(1f)) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScrollbar(listState)
             ) {
                 // Header — sticky-style top section.
                 item {
