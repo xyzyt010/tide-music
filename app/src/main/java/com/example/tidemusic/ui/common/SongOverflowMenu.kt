@@ -230,7 +230,7 @@ fun SongOverflowMenu(
             Text(
                 text = if (isFavorite) "Favorited" else "Not favorited",
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (isFavorite) TideColors.error else TideColors.textSecondary,
+                color = if (isFavorite) TideColors.accent else TideColors.textSecondary,
                 modifier = Modifier.weight(1f),
             )
             IconButton(
@@ -249,7 +249,7 @@ fun SongOverflowMenu(
                 Icon(
                     imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                     contentDescription = "Favorite",
-                    tint = if (isFavorite) TideColors.error else TideColors.textSecondary,
+                    tint = if (isFavorite) TideColors.accent else TideColors.textSecondary,
                 )
             }
         }

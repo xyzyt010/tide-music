@@ -82,7 +82,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
     companion object {
         const val TAG = "PlaybackService"
         const val NOTIFICATION_ID = 1001
-        const val CHANNEL_ID = "tide_media_playback_v5"
+        const val CHANNEL_ID = "tide_fluid_dynamics_live_v6"
 
         const val ACTION_PLAY_PAUSE = "com.example.tidemusic.ACTION_PLAY_PAUSE"
         const val ACTION_PREVIOUS = "com.example.tidemusic.ACTION_PREVIOUS"
@@ -625,7 +625,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
             .setDeleteIntent(closeIntent)
             .setOngoing(isPlaying)
             .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(mediaStyle)
@@ -691,15 +691,16 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 nm?.deleteNotificationChannel("tide_media_playback_v2")
                 nm?.deleteNotificationChannel("tide_media_playback_v3")
                 nm?.deleteNotificationChannel("tide_media_playback_v4")
+                nm?.deleteNotificationChannel("tide_media_playback_v5")
             } catch (_: Exception) {}
 
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.media_notification_channel),
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Music playback controls and status bar capsule"
-                setShowBadge(false)
+                setShowBadge(true)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setSound(null, null)

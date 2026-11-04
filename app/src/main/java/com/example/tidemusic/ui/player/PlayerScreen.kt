@@ -427,7 +427,7 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -450,72 +450,38 @@ fun PlayerScreen(
                     .padding(bottom = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                var playerViewPage by remember { mutableIntStateOf(0) }
-                var swipeDragOffset by remember { mutableFloatStateOf(0f) }
+                val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
-                Box(
+                HorizontalPager(
+                    state = pagerState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .pointerInput(playerViewPage) {
-                            detectHorizontalDragGestures(
-                                onDragEnd = {
-                                    if (swipeDragOffset < -35f && playerViewPage == 0) {
-                                        playerViewPage = 1 // Swiped left -> show lyrics
-                                    } else if (swipeDragOffset > 35f && playerViewPage == 1) {
-                                        playerViewPage = 0 // Swiped right -> show artwork
-                                    }
-                                    swipeDragOffset = 0f
-                                },
-                                onDragCancel = {
-                                    swipeDragOffset = 0f
-                                },
-                                onHorizontalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    swipeDragOffset += dragAmount
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AnimatedContent(
-                        targetState = playerViewPage,
-                        transitionSpec = {
-                            if (targetState > initialState) {
-                                (slideInHorizontally { width -> width / 2 } + fadeIn(animationSpec = tween(220))) togetherWith
-                                (slideOutHorizontally { width -> -width / 2 } + fadeOut(animationSpec = tween(220)))
-                            } else {
-                                (slideInHorizontally { width -> -width / 2 } + fadeIn(animationSpec = tween(220))) togetherWith
-                                (slideOutHorizontally { width -> width / 2 } + fadeOut(animationSpec = tween(220)))
-                            }
-                        },
-                        label = "PlayerViewSwitch"
-                    ) { page ->
-                        if (page == 0) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                PlayerArtwork(
-                                    song = s,
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.92f)
-                                        .heightIn(max = 330.dp),
-                                    isPlaying = isPlaying,
-                                )
-                            }
-                        } else {
-                            LyricsCanvasView(
+                        .weight(1f),
+                ) { page ->
+                    if (page == 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            PlayerArtwork(
                                 song = s,
-                                positionMs = position.toLong(),
-                                onSeek = { controller?.seekTo(it) },
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(vertical = 4.dp),
+                                    .fillMaxWidth(0.85f)
+                                    .heightIn(max = 260.dp),
+                                isPlaying = isPlaying,
                             )
                         }
+                    } else {
+                        LyricsCanvasView(
+                            song = s,
+                            positionMs = position.toLong(),
+                            onSeek = { controller?.seekTo(it) },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(vertical = 4.dp),
+                        )
                     }
                 }
 
@@ -527,7 +493,7 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     for (i in 0..1) {
-                        val isSelected = playerViewPage == i
+                        val isSelected = pagerState.currentPage == i
                         val targetWidth = if (isSelected) 20.dp else 6.dp
                         val widthAnim by animateDpAsState(
                             targetValue = targetWidth,
@@ -543,7 +509,9 @@ fun PlayerScreen(
                                 .clip(RoundedCornerShape(2.5.dp))
                                 .background(color)
                                 .clickable {
-                                    playerViewPage = i
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(i)
+                                    }
                                 }
                         )
                     }
@@ -597,7 +565,7 @@ fun PlayerScreen(
                         Icon(
                             imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             contentDescription = "Favorite",
-                            tint = if (isFavorite) TideColors.error else TideColors.textPrimary.copy(alpha = 0.8f),
+                            tint = if (isFavorite) TideColors.accent else TideColors.textPrimary.copy(alpha = 0.8f),
                         )
                     }
                     IconButton(
@@ -1509,9 +1477,7 @@ fun LyricsCanvasView(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.Black.copy(alpha = 0.28f))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         val currentLyrics = lyrics
@@ -1572,9 +1538,7 @@ fun LyricsCanvasView(
 
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScrollbar(listState),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = verticalCenterPadding, bottom = verticalCenterPadding),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
@@ -1590,15 +1554,15 @@ fun LyricsCanvasView(
                             text = line.text,
                             style = if (isActive) {
                                 MaterialTheme.typography.titleMedium.copy(
-                                    fontSize = 24.sp,
+                                    fontSize = 26.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    lineHeight = 34.sp,
+                                    lineHeight = 36.sp,
                                 )
                             } else {
                                 MaterialTheme.typography.bodyMedium.copy(
-                                    fontSize = 17.sp,
+                                    fontSize = 17.5.sp,
                                     fontWeight = FontWeight.Medium,
-                                    lineHeight = 26.sp,
+                                    lineHeight = 28.sp,
                                 )
                             },
                             color = textColor,
@@ -1618,9 +1582,7 @@ fun LyricsCanvasView(
             val listState = rememberLazyListState()
             LazyColumn(
                 state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScrollbar(listState),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -1628,8 +1590,8 @@ fun LyricsCanvasView(
                     Text(
                         text = line,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontSize = 17.sp,
-                            lineHeight = 26.sp,
+                            fontSize = 18.sp,
+                            lineHeight = 28.sp,
                         ),
                         color = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),

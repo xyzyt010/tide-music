@@ -141,9 +141,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun AppShell(initialDeepLink: String? = null) {
     val backStack = rememberNavBackStack(Main)
-    if (initialDeepLink == "tidemusic://player" && backStack.size == 1) {
-        backStack.add(Player)
-    }
 
     val currentKey = backStack.lastOrNull()
     val isFullScreenDest = currentKey == EqualizerNavKey ||
@@ -151,19 +148,27 @@ fun AppShell(initialDeepLink: String? = null) {
             currentKey == HelpInfo ||
             currentKey == SleepTimer
 
-    val sections = remember { listOf(Player, Queue, Albums, Playlists, Folders, Search, Download, Artists) }
+    // Player is removed from bottom dock per requirements: it is accessible via notification or tapping mini dock
+    val sections = remember { listOf(Queue, Albums, Playlists, Folders, Search, Download, Artists) }
     val titles = remember {
         listOf(
-            R.string.section_player, R.string.section_queue, R.string.section_albums, R.string.section_playlists,
+            R.string.section_queue, R.string.section_albums, R.string.section_playlists,
             R.string.section_folders, R.string.section_search, R.string.section_download, R.string.section_artists
         )
     }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { sections.size })
     val isDarkMode by ServiceLocator.settingsManager.isDarkMode.collectAsState()
-    val scope = rememberCoroutineScope()    // Per-section navigation state preservation:
+    val scope = rememberCoroutineScope()
+    // Per-section navigation state preservation:
     // Maps section index -> list of detail NavKeys that were on the backStack for that section.
     val sectionStacks = remember { mutableStateMapOf<Int, List<NavKey>>() }
-    var isPlayerExpanded by remember { mutableStateOf(false) }
+    var isPlayerExpanded by remember { mutableStateOf(initialDeepLink == "tidemusic://player") }
+
+    LaunchedEffect(initialDeepLink) {
+        if (initialDeepLink == "tidemusic://player") {
+            isPlayerExpanded = true
+        }
+    }
 
     val controller = LocalMediaController.current
     var currentMediaItem by remember { mutableStateOf(controller?.currentMediaItem) }
@@ -186,10 +191,10 @@ fun AppShell(initialDeepLink: String? = null) {
 
     // Determine which section index a detail NavKey belongs to.
     fun sectionIndexForDetailKey(key: NavKey): Int = when (key) {
-        is AlbumDetail -> 2   // Albums
-        is PlaylistDetail -> 3 // Playlists
-        is FolderDetail -> 4   // Folders
-        is ArtistDetail -> 7   // Artists
+        is AlbumDetail -> 1   // Albums
+        is PlaylistDetail -> 2 // Playlists
+        is FolderDetail -> 3   // Folders
+        is ArtistDetail -> 6   // Artists
         else -> -1
     }
 
@@ -200,41 +205,26 @@ fun AppShell(initialDeepLink: String? = null) {
             bottomBar = {
                 if (!isFullScreenDest) {
                     var menuOpen by remember { mutableStateOf(false) }
-                    val barOutline = Color.White.copy(alpha = 0.16f)
-                    val isPlayerPage = pagerState.currentPage == 0
-                    val currentSong = currentMediaItem?.let(::mediaItemToSongDomain)
-                    val artworkModel = if (isPlayerPage && currentSong != null) {
-                        remember(currentSong.id, currentSong.filePath, currentSong.uri, currentSong.dateModified) {
-                            com.example.tidemusic.util.SongArtworkRequest(
-                                songId = currentSong.id,
-                                filePath = currentSong.filePath,
-                                uriString = currentSong.uri,
-                                dateModified = currentSong.dateModified,
-                            )
-                        }
-                    } else null
-                    var hasArtwork by remember(currentSong?.id) { mutableStateOf(false) }
 
                     Column(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         val miniPlayerEnabledPref by ServiceLocator.settingsManager.isMiniPlayerEnabled.collectAsState()
-                        val hasMiniPlayer = !isPlayerPage && currentMediaItem != null && miniPlayerEnabledPref
+                        val hasMiniPlayer = currentMediaItem != null && miniPlayerEnabledPref
                         if (hasMiniPlayer) {
                             com.example.tidemusic.ui.common.MiniPlayerBar(
                                 onClick = { isPlayerExpanded = true }
                             )
                         }
 
-                        val bottomBarDividerColor = if (isPlayerPage) Color.White.copy(alpha = 0.16f) else TideColors.textSecondary.copy(alpha = 0.18f)
-                        val bottomBarBackground = if (isPlayerPage) Color.Transparent else TideColors.surface.copy(alpha = 0.96f)
+                        val bottomBarDividerColor = TideColors.textSecondary.copy(alpha = 0.18f)
+                        val bottomBarBackground = TideColors.surface.copy(alpha = 0.96f)
 
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(bottomBarBackground)
                                 .drawBehind {
-                                    // Translucent hairline division line: always shown across all pages including Player page
                                     drawLine(
                                         color = bottomBarDividerColor,
                                         start = Offset(0f, 0f),
@@ -255,7 +245,6 @@ fun AppShell(initialDeepLink: String? = null) {
                                 sections.forEachIndexed { index, navKey ->
                                     val selected = pagerState.currentPage == index
                                     val icon = when (navKey) {
-                                        Player -> Icons.Rounded.PlayArrow
                                         Queue -> Icons.Rounded.QueueMusic
                                         Albums -> Icons.Rounded.Album
                                         Playlists -> Icons.Rounded.PlaylistPlay
@@ -263,10 +252,9 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Search -> Icons.Rounded.Search
                                         Download -> Icons.Rounded.Download
                                         Artists -> Icons.Rounded.Person
-                                        else -> Icons.Rounded.PlayArrow
+                                        else -> Icons.Rounded.QueueMusic
                                     }
                                     val label = when (navKey) {
-                                        Player -> "Player"
                                         Queue -> "Queue"
                                         Albums -> "Albums"
                                         Playlists -> "Playlists"
@@ -359,13 +347,12 @@ fun AppShell(initialDeepLink: String? = null) {
                 }
             }
         ) { appPadding ->
-            val isPlayer = pagerState.currentPage == 0
             NavDisplay(
                 backStack = backStack,
                 onBack = { backStack.removeLastOrNull() },
                 modifier = Modifier.padding(
                     top = appPadding.calculateTopPadding(),
-                    bottom = if (isPlayer) 0.dp else appPadding.calculateBottomPadding(),
+                    bottom = appPadding.calculateBottomPadding(),
                 ),
                 entryProvider = entryProvider {
                     entry<Main> {
@@ -517,7 +504,6 @@ private fun ShellContents(
                 }
             } else {
                 when (sections[page]) {
-                    Player -> PlayerScreen(onBack = null, onNavigate = onOpenScreen)
                     Queue -> QueueScreen(onBack = { /* top-level, no back */ })
                     Albums -> AlbumsScreen(onAlbumClick = { id -> onOpenDetail(AlbumDetail(id)) }, onOpenScreen = onOpenScreen)
                     Playlists -> PlaylistsScreen(onPlaylistClick = { p -> onOpenDetail(PlaylistDetail(p.id, p.name, p.isBuiltIn)) })

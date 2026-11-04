@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val deepLinkFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -49,11 +50,18 @@ class MainActivity : ComponentActivity() {
         triggerLibraryScan(force = true)
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.dataString?.let { deepLinkFlow.value = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // lock the player deep-link intent: open the Player screen if the system routed us here.
         val initialDeepLink = intent?.dataString
+        deepLinkFlow.value = initialDeepLink
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -88,9 +96,10 @@ class MainActivity : ComponentActivity() {
                     ServiceLocator.playbackController.ensureServiceStarted()
                 }
                 val player by ServiceLocator.playbackController.playerState.collectAsState()
+                val currentDeepLink by deepLinkFlow.collectAsState()
                 CompositionLocalProvider(LocalMediaController provides player) {
                     Box(Modifier.fillMaxSize()) {
-                        AppShell(initialDeepLink = initialDeepLink)
+                        AppShell(initialDeepLink = currentDeepLink)
 
                         // Smooth splash overlay with running blue beam that dissolves immediately
                         AnimatedVisibility(

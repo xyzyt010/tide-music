@@ -54,6 +54,8 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -359,6 +361,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
     var position by remember { mutableFloatStateOf(controller.currentPosition.toFloat()) }
     var duration by remember { mutableFloatStateOf(controller.duration.coerceAtLeast(0L).toFloat()) }
+    var repeatMode by remember { mutableStateOf(controller.repeatMode) }
 
     LaunchedEffect(controller) {
         controller.removeListener(controllerListener)
@@ -373,12 +376,16 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 position = controller.currentPosition.toFloat()
                 duration = controller.duration.coerceAtLeast(0L).toFloat()
             }
+            override fun onRepeatModeChanged(mode: Int) {
+                repeatMode = mode
+            }
         }
         controller.addListener(controllerListener)
         currentItem = controller.currentMediaItem
         isPlaying = controller.isPlaying
         position = controller.currentPosition.toFloat()
         duration = controller.duration.coerceAtLeast(0L).toFloat()
+        repeatMode = controller.repeatMode
     }
 
     LaunchedEffect(controller, isPlaying) {
@@ -412,7 +419,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(78.dp)
+            .height(102.dp)
             .padding(0.dp)
             .clipToBounds()
             .background(surfaceColor)
@@ -476,24 +483,22 @@ fun MiniPlayerBar(onClick: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 2.dp),
+                .padding(top = 6.dp, bottom = 4.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, end = 6.dp, top = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (song != null) {
-                    // Song cover image
-                    ArtworkTile(song = song, size = 42.dp, rounded = 9.dp)
-
-                    // Title & artist text
+            if (song != null) {
+                // Top row: Song info (Artwork + Title & Artist)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ArtworkTile(song = song, size = 36.dp, rounded = 8.dp)
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 10.dp),
+                            .padding(start = 10.dp, end = 6.dp),
                     ) {
                         Text(
                             text = song.title.orUnknown(),
@@ -505,7 +510,6 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             maxLines = 1,
                             modifier = Modifier.basicMarquee(),
                         )
-                        Spacer(Modifier.height(1.dp))
                         Text(
                             text = song.artist.orUnknown(),
                             style = MaterialTheme.typography.bodySmall.copy(
@@ -516,82 +520,106 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
 
-                    // Main playback buttons with increased touch targets and balanced spacing
-                    val shuffleMode by com.example.tidemusic.di.ServiceLocator.playbackController.shuffleModeState.collectAsState()
-                    val isShuffleActive = shuffleMode != com.example.tidemusic.playback.PlaybackController.ShuffleMode.OFF
+                // Middle tier: 5 format playback buttons identical to notification [Prev] [Play/Pause] [Next] [Repeat] [Shuffle]
+                val shuffleMode by com.example.tidemusic.di.ServiceLocator.playbackController.shuffleModeState.collectAsState()
+                val isShuffleActive = shuffleMode != com.example.tidemusic.playback.PlaybackController.ShuffleMode.OFF
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
+                        modifier = Modifier.size(42.dp),
                     ) {
-                        IconButton(
-                            onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
-                            modifier = Modifier.size(40.dp),
-                        ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipPrevious,
+                            contentDescription = "Previous",
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.togglePlayPause() },
+                        modifier = Modifier.size(46.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.next() },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipNext,
+                            contentDescription = "Next",
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            val nextMode = com.example.tidemusic.di.ServiceLocator.playbackController.cycleRepeat()
+                            repeatMode = nextMode
+                        },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                            contentDescription = if (repeatMode == Player.REPEAT_MODE_ONE) "Repeat One" else "Repeat",
+                            tint = if (repeatMode != Player.REPEAT_MODE_OFF) TideColors.accent else TideColors.textSecondary,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            com.example.tidemusic.di.ServiceLocator.playbackController.cycleShuffleMode()
+                        },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Rounded.SkipPrevious,
-                                contentDescription = "Previous",
-                                tint = TideColors.textPrimary,
-                                modifier = Modifier.size(26.dp),
+                                imageVector = Icons.Rounded.Shuffle,
+                                contentDescription = when (shuffleMode) {
+                                    com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL -> "Shuffle All"
+                                    com.example.tidemusic.playback.PlaybackController.ShuffleMode.QUEUE -> "Shuffle Playlist"
+                                    else -> "Shuffle Off"
+                                },
+                                tint = if (isShuffleActive) TideColors.accent else TideColors.textSecondary,
+                                modifier = Modifier.size(24.dp),
                             )
-                        }
-                        IconButton(
-                            onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.togglePlayPause() },
-                            modifier = Modifier.size(46.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = TideColors.textPrimary,
-                                modifier = Modifier.size(30.dp),
-                            )
-                        }
-                        IconButton(
-                            onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.next() },
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.SkipNext,
-                                contentDescription = "Next",
-                                tint = TideColors.textPrimary,
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                com.example.tidemusic.di.ServiceLocator.playbackController.cycleShuffleMode()
-                            },
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Shuffle,
-                                    contentDescription = when (shuffleMode) {
-                                        com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL -> "Shuffle All"
-                                        com.example.tidemusic.playback.PlaybackController.ShuffleMode.QUEUE -> "Shuffle Playlist"
-                                        else -> "Shuffle Off"
-                                    },
-                                    tint = if (isShuffleActive) TideColors.accent else TideColors.textSecondary,
-                                    modifier = Modifier.size(22.dp),
+                            if (shuffleMode == com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL) {
+                                Text(
+                                    text = "ALL",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    ),
+                                    color = TideColors.accent,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(bottom = 1.dp),
                                 )
-                                if (shuffleMode == com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL) {
-                                    Text(
-                                        text = "ALL",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 7.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                        ),
-                                        color = TideColors.accent,
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(bottom = 1.dp),
-                                    )
-                                }
                             }
                         }
                     }
-                } else {
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Box(
                         modifier = Modifier
                             .size(42.dp)
@@ -604,10 +632,10 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 12.dp),
                     ) {
-                        Text("Not Playing", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = 13.5.sp), color = TideColors.textPrimary)
-                        Text("Tap to open player", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = TideColors.textSecondary)
+                        Text("Not Playing", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp), color = TideColors.textPrimary)
+                        Text("Tap to open player", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp), color = TideColors.textSecondary)
                     }
                 }
             }
@@ -627,7 +655,7 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                     activeColor = TideColors.textPrimary,
                     inactiveColor = TideColors.textPrimary.copy(alpha = 0.25f),
                     thumbColor = TideColors.textPrimary,
-                    touchHeight = 16.dp,
+                    touchHeight = 14.dp,
                     restTrackHeight = 2.dp,
                     dragTrackHeight = 3.5.dp,
                     restThumbRadius = 3.5.dp,
@@ -701,8 +729,7 @@ fun PlayerArtwork(
     Box(
         modifier = modifier
             .then(if (size != null) Modifier.size(size) else Modifier)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.Black.copy(alpha = 0.45f), shape = RoundedCornerShape(18.dp)),
+            .clip(RoundedCornerShape(18.dp)),
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
