@@ -90,6 +90,7 @@ class FoldersViewModel(
 @Composable
 fun FoldersScreen(
     onFolderClick: (Folder) -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: FoldersViewModel = rememberTideViewModel { FoldersViewModel(it.repository) },
 ) {
     val roots by viewModel.roots.collectAsState()
@@ -101,6 +102,7 @@ fun FoldersScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         ThinTopBar(
             title = "Folders",
+            onBack = onBack,
             trailing = {
                 Box {
                     IconButton(onClick = { showMenu = true }) {

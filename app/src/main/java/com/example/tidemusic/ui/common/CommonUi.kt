@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -101,6 +102,7 @@ import com.example.tidemusic.ui.LocalMediaController
 import com.example.tidemusic.util.PlaceholderArt
 import com.example.tidemusic.util.formatDuration
 import com.example.tidemusic.util.orUnknown
+import com.example.tidemusic.util.orEmptyIfUnknown
 
 @Composable
 fun ThinTopBar(
@@ -114,7 +116,7 @@ fun ThinTopBar(
             .fillMaxWidth()
             .background(TideColors.background)
             .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-            .height(48.dp)
+            .height(44.dp)
             .drawBehind {
                 val y = size.height
                 drawLine(borderColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
@@ -123,15 +125,18 @@ fun ThinTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(androidx.compose.material.icons.Icons.Rounded.ArrowBack, null, tint = TideColors.textPrimary)
+            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = TideColors.textPrimary, modifier = Modifier.size(22.dp))
             }
         } else {
-            androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(12.dp))
         }
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 17.sp,
+            ),
             color = TideColors.textPrimary,
             modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
             maxLines = 1,
@@ -139,6 +144,8 @@ fun ThinTopBar(
         )
         if (trailing != null) {
             trailing()
+        } else {
+            Spacer(Modifier.width(12.dp))
         }
     }
 }
@@ -510,15 +517,18 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                             maxLines = 1,
                             modifier = Modifier.basicMarquee(),
                         )
-                        Text(
-                            text = song.artist.orUnknown(),
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 11.sp,
-                            ),
-                            color = TideColors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        val cleanArtist = song.artist.orEmptyIfUnknown()
+                        if (cleanArtist.isNotEmpty()) {
+                            Text(
+                                text = cleanArtist,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 11.sp,
+                                ),
+                                color = TideColors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
 
@@ -725,11 +735,11 @@ fun PlayerArtwork(
         )
     }
     var imageSuccess by remember(song.id) { mutableStateOf(false) }
+    var imageAspectRatio by remember(song.id) { mutableFloatStateOf(1f) }
 
     Box(
         modifier = modifier
-            .then(if (size != null) Modifier.size(size) else Modifier)
-            .clip(RoundedCornerShape(18.dp)),
+            .then(if (size != null) Modifier.size(size) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
@@ -737,15 +747,22 @@ fun PlayerArtwork(
             contentDescription = song.title,
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(18.dp)),
+                .aspectRatio(imageAspectRatio)
+                .clip(RoundedCornerShape(16.dp)),
             contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             onState = { state ->
                 imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
+                if (state is coil3.compose.AsyncImagePainter.State.Success) {
+                    val intrinsic = state.painter.intrinsicSize
+                    if (intrinsic.width > 0f && intrinsic.height > 0f) {
+                        imageAspectRatio = intrinsic.width / intrinsic.height
+                    }
+                }
             },
         )
         if (!imageSuccess) {
             VinylDiscPlaceholder(
-                modifier = Modifier.size(260.dp),
+                modifier = Modifier.size(240.dp),
                 spinning = isPlaying,
             )
         }
@@ -917,8 +934,14 @@ fun SongRow(
                     modifier = Modifier.weight(1f, fill = false),
                 )
             }
+            val cleanArtist = song.artist.orEmptyIfUnknown()
+            val rowSubtitle = if (cleanArtist.isNotEmpty()) {
+                "$cleanArtist • ${formatDuration(song.durationMs)}"
+            } else {
+                formatDuration(song.durationMs)
+            }
             Text(
-                text = subtitleOverride ?: "${song.artist.orUnknown()} • ${formatDuration(song.durationMs)}",
+                text = subtitleOverride ?: rowSubtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = TideColors.textSecondary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,

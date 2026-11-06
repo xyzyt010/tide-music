@@ -62,6 +62,7 @@ import com.example.tidemusic.ui.common.applySortCriteria
 import com.example.tidemusic.ui.common.rememberMultiSelectState
 import com.example.tidemusic.ui.common.verticalScrollbar
 import com.example.tidemusic.ui.rememberTideViewModel
+import com.example.tidemusic.util.orEmptyIfUnknown
 import com.example.tidemusic.util.formatDuration
 import com.example.tidemusic.util.formatPlaylistDuration
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -247,7 +248,7 @@ fun PlaylistDetailScreen(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
                     ) {
                         val totalDurationMs = remember(effectiveSongs) { effectiveSongs.sumOf { it.durationMs } }
                         val isMostPlayed = isBuiltIn && title.equals("Most Played", ignoreCase = true)
@@ -264,10 +265,9 @@ fun PlaylistDetailScreen(
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                         )
 
-                        Spacer(Modifier.height(12.dp))
-
                         if (isFileFormatsPlaylist) {
-                            Box(modifier = Modifier.padding(bottom = 12.dp)) {
+                            Spacer(Modifier.height(8.dp))
+                            Box(modifier = Modifier.padding(bottom = 4.dp)) {
                                 androidx.compose.material3.Surface(
                                     onClick = { showFormatDropdown = true },
                                     shape = RoundedCornerShape(10.dp),
@@ -340,71 +340,8 @@ fun PlaylistDetailScreen(
                             }
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            androidx.compose.material3.Button(
-                                onClick = {
-                                    if (isFileFormatsPlaylist && selectedFormat != "ALL") {
-                                        viewModel.playCustomList(effectiveSongs, 0)
-                                    } else {
-                                        viewModel.playAll()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                    containerColor = TideColors.accent,
-                                    contentColor = androidx.compose.ui.graphics.Color.Black,
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "Play All",
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            androidx.compose.material3.FilledTonalButton(
-                                onClick = {
-                                    if (isFileFormatsPlaylist && selectedFormat != "ALL") {
-                                        viewModel.shuffleCustomList(effectiveSongs)
-                                    } else {
-                                        viewModel.shuffleAll()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = TideColors.surfaceElevated,
-                                    contentColor = TideColors.textPrimary,
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Shuffle,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = TideColors.accent,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "Shuffle",
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-
                         androidx.compose.material3.HorizontalDivider(
-                            modifier = Modifier.padding(top = 14.dp),
+                            modifier = Modifier.padding(top = 8.dp),
                             color = TideColors.outline,
                             thickness = 1.dp
                         )
@@ -484,8 +421,9 @@ fun PlaylistDetailScreen(
                         val isMostPlayed = isBuiltIn && title.equals("Most Played", ignoreCase = true)
                         val playsText = if (song.playCount == 1) "1 play" else "${song.playCount} plays"
                         val customSubtitle = if (isMostPlayed) {
-                            val artistStr = song.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
-                            "$artistStr • $playsText • ${formatDuration(song.durationMs)}"
+                            val artistStr = song.artist.orEmptyIfUnknown()
+                            if (artistStr.isNotEmpty()) "$artistStr • $playsText • ${formatDuration(song.durationMs)}"
+                            else "$playsText • ${formatDuration(song.durationMs)}"
                         } else null
 
                         SongRow(

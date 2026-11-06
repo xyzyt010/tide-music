@@ -126,8 +126,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import com.example.tidemusic.util.orEmptyIfUnknown
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -172,17 +174,38 @@ class PlayerViewModel(
     private val _fullSong = MutableStateFlow<Song?>(null)
     val fullSong: StateFlow<Song?> = _fullSong.asStateFlow()
 
-    fun bind(songId: Long) {
+    fun bind(songId: Long, filePath: String = "") {
         viewModelScope.launch {
-            repository.observeSong(songId).collect { s ->
-                _isFavorite.value = s?.isFavorite ?: false
-                if (s != null) _fullSong.value = s
+            var targetId = songId
+            if (targetId <= 0 && filePath.isNotBlank()) {
+                val found = repository.findSongByFilePath(filePath)
+                if (found != null) {
+                    targetId = found.id
+                    _isFavorite.value = found.isFavorite
+                    _fullSong.value = found
+                }
+            }
+            if (targetId > 0) {
+                repository.observeSong(targetId).collect { s ->
+                    if (s != null) {
+                        _isFavorite.value = s.isFavorite
+                        _fullSong.value = s
+                    }
+                }
             }
         }
     }
 
     fun toggleFavorite(songId: Long, v: Boolean) {
-        viewModelScope.launch { repository.setFavorite(songId, v) }
+        _isFavorite.value = v
+        _fullSong.value = _fullSong.value?.copy(isFavorite = v)
+        viewModelScope.launch {
+            try {
+                if (songId > 0) {
+                    repository.setFavorite(songId, v)
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     fun updateTags(songId: Long, title: String, artist: String, album: String) {
@@ -341,9 +364,9 @@ fun PlayerScreen(
     }
 
     val mediaSong = currentItem?.let { mediaItemToSongDomain(it) }
-    LaunchedEffect(mediaSong?.id) {
+    LaunchedEffect(mediaSong?.id, mediaSong?.filePath) {
         if (mediaSong != null) {
-            viewModel.bind(mediaSong.id)
+            viewModel.bind(mediaSong.id, mediaSong.filePath)
             controller?.let {
                 position = it.currentPosition
                 duration = it.duration.coerceAtLeast(0L)
@@ -396,8 +419,8 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = 1.35f
-                        scaleY = 1.35f
+                        scaleX = 1.15f
+                        scaleY = 1.15f
                     }
                     .blur(64.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
@@ -427,7 +450,7 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                    .padding(horizontal = 14.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -468,8 +491,8 @@ fun PlayerScreen(
                             PlayerArtwork(
                                 song = s,
                                 modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .heightIn(max = 260.dp),
+                                    .fillMaxWidth(0.88f)
+                                    .heightIn(max = 340.dp),
                                 isPlaying = isPlaying,
                             )
                         }
@@ -531,20 +554,27 @@ fun PlayerScreen(
                         ),
                         color = TideColors.textPrimary,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            velocity = 30.dp,
+                        ),
                     )
                     Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = s.artist.ifBlank { "<unknown>" },
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp),
-                        color = TideColors.textPrimary.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (s.album.isNotBlank() && s.album != "<unknown>") {
+                    val artistDisplay = s.artist.orEmptyIfUnknown()
+                    if (artistDisplay.isNotEmpty()) {
+                        Text(
+                            text = artistDisplay,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp),
+                            color = TideColors.textPrimary.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    val albumDisplay = s.album.orEmptyIfUnknown()
+                    if (albumDisplay.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = s.album,
+                            text = albumDisplay,
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                             color = TideColors.textSecondary,
                             maxLines = 1,
@@ -1497,21 +1527,13 @@ fun LyricsCanvasView(
                     imageVector = Icons.Rounded.MusicNote,
                     contentDescription = null,
                     tint = TideColors.textSecondary.copy(alpha = 0.5f),
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(36.dp),
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "No Subtitles or Lyrics Found",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TideColors.textPrimary,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "No subtitles or lyrics were found on the source video or attached to this file",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "No lyrics found",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TideColors.textSecondary,
-                    textAlign = TextAlign.Center,
                 )
             }
         } else if (currentLyrics.isSynced) {

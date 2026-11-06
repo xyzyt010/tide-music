@@ -54,6 +54,7 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -146,14 +147,21 @@ fun AppShell(initialDeepLink: String? = null) {
     val isFullScreenDest = currentKey == EqualizerNavKey ||
             currentKey == SettingsNavKey ||
             currentKey == HelpInfo ||
-            currentKey == SleepTimer
+            currentKey == SleepTimer ||
+            currentKey == Albums ||
+            currentKey == Artists ||
+            currentKey == Folders ||
+            currentKey is AlbumDetail ||
+            currentKey is ArtistDetail ||
+            currentKey is FolderDetail
 
     // Player is removed from bottom dock per requirements: it is accessible via notification or tapping mini dock
-    val sections = remember { listOf(Queue, Albums, Playlists, Folders, Search, Download, Artists) }
+    // Albums, Artists, Folders moved to the "More" overflow menu
+    val sections = remember { listOf(Queue, Playlists, Search, Download) }
     val titles = remember {
         listOf(
-            R.string.section_queue, R.string.section_albums, R.string.section_playlists,
-            R.string.section_folders, R.string.section_search, R.string.section_download, R.string.section_artists
+            R.string.section_queue, R.string.section_playlists,
+            R.string.section_search, R.string.section_download
         )
     }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { sections.size })
@@ -191,10 +199,7 @@ fun AppShell(initialDeepLink: String? = null) {
 
     // Determine which section index a detail NavKey belongs to.
     fun sectionIndexForDetailKey(key: NavKey): Int = when (key) {
-        is AlbumDetail -> 1   // Albums
-        is PlaylistDetail -> 2 // Playlists
-        is FolderDetail -> 3   // Folders
-        is ArtistDetail -> 6   // Artists
+        is PlaylistDetail -> 1 // Playlists
         else -> -1
     }
 
@@ -238,37 +243,31 @@ fun AppShell(initialDeepLink: String? = null) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 sections.forEachIndexed { index, navKey ->
                                     val selected = pagerState.currentPage == index
                                     val icon = when (navKey) {
                                         Queue -> Icons.Rounded.QueueMusic
-                                        Albums -> Icons.Rounded.Album
                                         Playlists -> Icons.Rounded.PlaylistPlay
-                                        Folders -> Icons.Rounded.Folder
                                         Search -> Icons.Rounded.Search
                                         Download -> Icons.Rounded.Download
-                                        Artists -> Icons.Rounded.Person
                                         else -> Icons.Rounded.QueueMusic
                                     }
                                     val label = when (navKey) {
                                         Queue -> "Queue"
-                                        Albums -> "Albums"
                                         Playlists -> "Playlists"
-                                        Folders -> "Folders"
                                         Search -> "Search"
                                         Download -> "Download"
-                                        Artists -> "Artists"
                                         else -> ""
                                     }
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .clickable { scope.launch { pagerState.animateScrollToPage(index) } }
-                                            .padding(horizontal = 6.dp)
+                                            .padding(horizontal = 8.dp)
                                     ) {
                                         // Active page line indicator directly in sync over the dividing line
                                         Box(
@@ -280,18 +279,13 @@ fun AppShell(initialDeepLink: String? = null) {
                                                     shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 1.5.dp, bottomEnd = 1.5.dp)
                                                 )
                                         )
-                                        Spacer(Modifier.height(3.dp))
+                                        Spacer(Modifier.height(4.dp))
                                         Icon(
                                             imageVector = icon,
                                             contentDescription = label,
                                             tint = if (selected) TideColors.accent else TideColors.textSecondary
                                         )
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (selected) TideColors.accent else TideColors.textSecondary
-                                        )
-                                        Spacer(Modifier.height(3.dp))
+                                        Spacer(Modifier.height(4.dp))
                                     }
                                 }
 
@@ -301,44 +295,81 @@ fun AppShell(initialDeepLink: String? = null) {
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .clickable { menuOpen = true }
-                                            .padding(horizontal = 6.dp)
+                                            .padding(horizontal = 8.dp)
                                     ) {
                                         Box(modifier = Modifier.width(36.dp).height(2.5.dp))
-                                        Spacer(Modifier.height(3.dp))
+                                        Spacer(Modifier.height(4.dp))
                                         Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = TideColors.textSecondary)
-                                        Text("More", style = MaterialTheme.typography.labelSmall, color = TideColors.textSecondary)
-                                        Spacer(Modifier.height(3.dp))
+                                        Spacer(Modifier.height(4.dp))
                                     }
-                                    CenteredOverflowMenu(
-                                        visible = menuOpen,
-                                        onDismiss = { menuOpen = false },
-                                        title = "More",
+                                    DropdownMenu(
+                                        expanded = menuOpen,
+                                        onDismissRequest = { menuOpen = false },
+                                        containerColor = TideColors.surfaceElevated,
                                     ) {
-                                        CenteredMenuItem(
-                                            icon = if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                                            label = if (isDarkMode) "Light Theme" else "Dark Theme",
-                                        ) {
-                                            menuOpen = false
-                                            ServiceLocator.settingsManager.setDarkMode(!isDarkMode)
-                                        }
-                                        CenteredMenuItem(Icons.Rounded.Equalizer, "Equalizer") {
-                                            menuOpen = false; backStack.add(EqualizerNavKey)
-                                        }
-                                        CenteredMenuItem(Icons.Rounded.Refresh, "Scan Library") {
-                                            menuOpen = false
-                                            scope.launch(Dispatchers.IO) {
-                                                try { ServiceLocator.repository.rescanFull() } catch (_: Exception) {}
-                                            }
-                                        }
-                                        CenteredMenuItem(Icons.Rounded.Settings, "Settings") {
-                                            menuOpen = false; backStack.add(SettingsNavKey)
-                                        }
-                                        CenteredMenuItem(Icons.Rounded.Info, "Help & Info") {
-                                            menuOpen = false; backStack.add(HelpInfo)
-                                        }
-                                        CenteredMenuItem(Icons.Rounded.Timer, "Sleep Timer") {
-                                            menuOpen = false; backStack.add(SleepTimer)
-                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Albums", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Album, null, tint = TideColors.textSecondary) },
+                                            onClick = {
+                                                menuOpen = false
+                                                backStack.add(Albums)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Artists", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Person, null, tint = TideColors.textSecondary) },
+                                            onClick = {
+                                                menuOpen = false
+                                                backStack.add(Artists)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Folders", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Folder, null, tint = TideColors.textSecondary) },
+                                            onClick = {
+                                                menuOpen = false
+                                                backStack.add(Folders)
+                                            },
+                                        )
+                                        HorizontalDivider(color = TideColors.outline)
+                                        DropdownMenuItem(
+                                            text = { Text(if (isDarkMode) "Light Theme" else "Dark Theme", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, null, tint = TideColors.textSecondary) },
+                                            onClick = {
+                                                menuOpen = false
+                                                ServiceLocator.settingsManager.setDarkMode(!isDarkMode)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Equalizer", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Equalizer, null, tint = TideColors.textSecondary) },
+                                            onClick = { menuOpen = false; backStack.add(EqualizerNavKey) },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Scan Library", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Refresh, null, tint = TideColors.textSecondary) },
+                                            onClick = {
+                                                menuOpen = false
+                                                scope.launch(Dispatchers.IO) {
+                                                    try { ServiceLocator.repository.rescanFull() } catch (_: Exception) {}
+                                                }
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Settings", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Settings, null, tint = TideColors.textSecondary) },
+                                            onClick = { menuOpen = false; backStack.add(SettingsNavKey) },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Help & Info", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Info, null, tint = TideColors.textSecondary) },
+                                            onClick = { menuOpen = false; backStack.add(HelpInfo) },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Sleep Timer", color = TideColors.textPrimary) },
+                                            leadingIcon = { Icon(Icons.Rounded.Timer, null, tint = TideColors.textSecondary) },
+                                            onClick = { menuOpen = false; backStack.add(SleepTimer) },
+                                        )
                                     }
                                 }
                             }
@@ -397,6 +428,46 @@ fun AppShell(initialDeepLink: String? = null) {
                     entry<SettingsNavKey> { SettingsScreen(onBack = { backStack.removeLastOrNull() }) }
                     entry<HelpInfo> { HelpInfoScreen(onBack = { backStack.removeLastOrNull() }) }
                     entry<SleepTimer> { SleepTimerScreen(onBack = { backStack.removeLastOrNull() }) }
+                    entry<Albums> {
+                        AlbumsScreen(
+                            onAlbumClick = { id -> backStack.add(AlbumDetail(id)) },
+                            onOpenScreen = { dest -> backStack.add(dest) },
+                            onBack = { backStack.removeLastOrNull() },
+                        )
+                    }
+                    entry<Artists> {
+                        ArtistsScreen(
+                            onArtistClick = { id, name -> backStack.add(ArtistDetail(id, name)) },
+                            onBack = { backStack.removeLastOrNull() },
+                        )
+                    }
+                    entry<Folders> {
+                        FoldersScreen(
+                            onFolderClick = { f -> backStack.add(FolderDetail(f.id, f.path)) },
+                            onBack = { backStack.removeLastOrNull() },
+                        )
+                    }
+                    entry<AlbumDetail> { detail ->
+                        AlbumDetailScreen(
+                            albumId = detail.albumId,
+                            onBack = { backStack.removeLastOrNull() },
+                        )
+                    }
+                    entry<ArtistDetail> { detail ->
+                        ArtistDetailScreen(
+                            artistId = detail.artistId,
+                            artistName = detail.artistName,
+                            onBack = { backStack.removeLastOrNull() },
+                        )
+                    }
+                    entry<FolderDetail> { detail ->
+                        FolderDetailScreen(
+                            folderId = detail.folderId,
+                            path = detail.folderPath,
+                            onBack = { backStack.removeLastOrNull() },
+                            onFolderClick = { child -> backStack.add(FolderDetail(child.id, child.path)) },
+                        )
+                    }
                 },
             )
         }
@@ -472,12 +543,6 @@ private fun ShellContents(
             val stack = sectionStacks[page] ?: emptyList()
             if (stack.isNotEmpty()) {
                 when (val topKey = stack.last()) {
-                    is AlbumDetail -> {
-                        AlbumDetailScreen(
-                            albumId = topKey.albumId,
-                            onBack = onBackDetail
-                        )
-                    }
                     is PlaylistDetail -> {
                         PlaylistDetailScreen(
                             playlistId = topKey.playlistId,
@@ -486,31 +551,13 @@ private fun ShellContents(
                             onBack = onBackDetail
                         )
                     }
-                    is FolderDetail -> {
-                        FolderDetailScreen(
-                            folderId = topKey.folderId,
-                            path = topKey.folderPath,
-                            onBack = onBackDetail,
-                            onFolderClick = { child -> onOpenDetail(FolderDetail(child.id, child.path)) }
-                        )
-                    }
-                    is ArtistDetail -> {
-                        ArtistDetailScreen(
-                            artistId = topKey.artistId,
-                            artistName = topKey.artistName,
-                            onBack = onBackDetail,
-                        )
-                    }
                 }
             } else {
                 when (sections[page]) {
                     Queue -> QueueScreen(onBack = { /* top-level, no back */ })
-                    Albums -> AlbumsScreen(onAlbumClick = { id -> onOpenDetail(AlbumDetail(id)) }, onOpenScreen = onOpenScreen)
                     Playlists -> PlaylistsScreen(onPlaylistClick = { p -> onOpenDetail(PlaylistDetail(p.id, p.name, p.isBuiltIn)) })
-                    Folders -> FoldersScreen(onFolderClick = { f -> onOpenDetail(FolderDetail(f.id, f.path)) })
                     Search -> SearchScreen(isActive = pagerState.currentPage == page)
                     Download -> DownloadScreen()
-                    Artists -> ArtistsScreen(onArtistClick = { id, name -> onOpenDetail(ArtistDetail(id, name)) })
                 }
             }
         }

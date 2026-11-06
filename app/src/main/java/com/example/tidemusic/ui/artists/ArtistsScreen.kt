@@ -1,5 +1,6 @@
 package com.example.tidemusic.ui.artists
 
+import com.example.tidemusic.util.orEmptyIfUnknown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +60,7 @@ class ArtistsViewModel(
 @Composable
 fun ArtistsScreen(
     onArtistClick: (Long, String) -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: ArtistsViewModel = rememberTideViewModel { ArtistsViewModel(it.repository) },
 ) {
     val rawArtists by viewModel.artists.collectAsState()
@@ -91,6 +93,7 @@ fun ArtistsScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         com.example.tidemusic.ui.common.ThinTopBar(
             title = "Artists",
+            onBack = onBack,
             trailing = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -125,7 +128,7 @@ fun ArtistsScreen(
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(TideColors.surfaceElevated.copy(alpha = 0.65f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(start = 8.dp, top = 7.dp, end = 10.dp, bottom = 7.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -137,12 +140,13 @@ fun ArtistsScreen(
                     tint = TideColors.textSecondary,
                     modifier = Modifier.size(18.dp),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 androidx.compose.foundation.text.BasicTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = TideColors.textPrimary),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(TideColors.accent),
                     modifier = Modifier.weight(1f),
                     decorationBox = { innerTextField ->
                         if (searchQuery.isEmpty()) {
@@ -220,7 +224,7 @@ private fun ArtistListRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = artist.name.takeIf { it.isNotBlank() } ?: "Unknown Artist",
+                text = artist.name.orEmptyIfUnknown(),
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,

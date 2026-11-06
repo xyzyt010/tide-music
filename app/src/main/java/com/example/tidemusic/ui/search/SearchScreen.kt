@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -179,6 +182,7 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var isFocused by remember { mutableStateOf(false) }
 
     val glowProgress by animateFloatAsState(
         targetValue = if (isActive) 1f else 0f,
@@ -213,12 +217,22 @@ fun SearchScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
+        val underlineColor = TideColors.accent
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(TideColors.background)
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .drawBehind {
+                    val strokeWidth = 1.5.dp.toPx()
+                    drawLine(
+                        color = underlineColor,
+                        start = Offset(0f, size.height - strokeWidth / 2f),
+                        end = Offset(size.width, size.height - strokeWidth / 2f),
+                        strokeWidth = strokeWidth
+                    )
+                }
+                .padding(horizontal = 14.dp, vertical = 4.dp)
         ) {
             BasicTextField(
                 value = query,
@@ -232,30 +246,29 @@ fun SearchScreen(
                 }),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
-                    .focusRequester(focusRequester),
+                    .height(44.dp)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { isFocused = it.isFocused },
                 decorationBox = { innerTextField ->
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(TideColors.surfaceElevated, shape = RoundedCornerShape(20.dp))
-                            .border(width = borderWidth, color = borderColor, shape = RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp),
+                            .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Search,
                             contentDescription = "Search",
-                            tint = TideColors.textSecondary,
-                            modifier = Modifier.size(24.dp)
+                            tint = if (isFocused || query.isNotEmpty()) TideColors.accent else TideColors.textSecondary,
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
                                 Text(
                                     text = "Search songs, albums, artists…",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = TideColors.textSecondary
+                                    color = TideColors.textSecondary.copy(alpha = 0.65f)
                                 )
                             }
                             innerTextField()

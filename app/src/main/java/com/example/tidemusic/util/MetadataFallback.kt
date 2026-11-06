@@ -13,3 +13,13 @@ package com.example.tidemusic.util
  */
 fun String?.orUnknown(): String =
     if (this.isNullOrBlank()) "Unknown" else this.trim()
+
+/** Returns empty string if blank, unknown, or "<unknown>" (for clean artist & album display). */
+fun String?.orEmptyIfUnknown(): String {
+    if (this == null) return ""
+    val trimmed = this.trim()
+    if (trimmed.isBlank() || trimmed.equals("unknown", ignoreCase = true) || trimmed.equals("<unknown>", ignoreCase = true)) {
+        return ""
+    }
+    return trimmed
+}

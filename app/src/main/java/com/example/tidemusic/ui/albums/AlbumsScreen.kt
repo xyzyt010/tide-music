@@ -1,5 +1,6 @@
 package com.example.tidemusic.ui.albums
 
+import com.example.tidemusic.util.orEmptyIfUnknown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,7 @@ class AlbumsViewModel(
 fun AlbumsScreen(
     onAlbumClick: (Long) -> Unit,
     onOpenScreen: (NavKey) -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: AlbumsViewModel = rememberTideViewModel { AlbumsViewModel(it.repository) },
 ) {
     val rawAlbums by viewModel.albums.collectAsState()
@@ -72,7 +74,7 @@ fun AlbumsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        com.example.tidemusic.ui.common.ThinTopBar(title = "Albums")
+        com.example.tidemusic.ui.common.ThinTopBar(title = "Albums", onBack = onBack)
         if (distinctAlbums.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
@@ -150,7 +152,7 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
             }
         }
         Text(
-            text = album.name.takeIf { it.isNotBlank() } ?: "Unknown Album",
+            text = album.name.orEmptyIfUnknown(),
             style = MaterialTheme.typography.bodyMedium,
             color = TideColors.textPrimary,
             maxLines = 1,
@@ -158,7 +160,7 @@ private fun AlbumTile(album: Album, onClick: () -> Unit) {
             modifier = Modifier.padding(top = 6.dp),
         )
         Text(
-            text = album.artist.takeIf { it.isNotBlank() } ?: "Unknown Artist",
+            text = album.artist.orEmptyIfUnknown(),
             style = MaterialTheme.typography.bodySmall,
             color = TideColors.textSecondary,
             maxLines = 1,
