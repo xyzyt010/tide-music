@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -470,7 +471,8 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 20.dp),
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
@@ -479,7 +481,8 @@ fun PlayerScreen(
                     state = pagerState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1f)
+                        .heightIn(max = 300.dp),
                 ) { page ->
                     if (page == 0) {
                         Box(
@@ -491,8 +494,8 @@ fun PlayerScreen(
                             PlayerArtwork(
                                 song = s,
                                 modifier = Modifier
-                                    .fillMaxWidth(0.88f)
-                                    .heightIn(max = 340.dp),
+                                    .fillMaxWidth(0.85f)
+                                    .heightIn(max = 280.dp),
                                 isPlaying = isPlaying,
                             )
                         }
@@ -501,6 +504,7 @@ fun PlayerScreen(
                             song = s,
                             positionMs = position.toLong(),
                             onSeek = { controller?.seekTo(it) },
+                            canAutoScroll = pagerState.currentPage == 1 && !pagerState.isScrollInProgress && pagerState.currentPageOffsetFraction == 0f,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(vertical = 4.dp),
@@ -836,7 +840,7 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(36.dp))
             }
         }
     }
@@ -1494,6 +1498,7 @@ fun LyricsCanvasView(
     song: Song,
     positionMs: Long,
     onSeek: (Long) -> Unit,
+    canAutoScroll: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var lyrics by remember(song.id) { mutableStateOf<SongLyrics?>(null) }
@@ -1543,9 +1548,9 @@ fun LyricsCanvasView(
                 if (idx >= 0) idx else 0
             }
 
-            // Always automatically scroll to center active lyric as song plays or seeks
-            LaunchedEffect(activeIndex, listState.isScrollInProgress) {
-                if (!listState.isScrollInProgress && activeIndex in currentLyrics.lines.indices) {
+            // Automatically scroll to center active lyric as song plays or seeks (only when lyrics view is steady and active)
+            LaunchedEffect(activeIndex, listState.isScrollInProgress, canAutoScroll) {
+                if (canAutoScroll && !listState.isScrollInProgress && activeIndex in currentLyrics.lines.indices) {
                     try {
                         listState.animateScrollToItem(
                             index = activeIndex,
@@ -1590,8 +1595,10 @@ fun LyricsCanvasView(
                             color = textColor,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    onSeek(line.timestampMs)
+                                .pointerInput(line.timestampMs) {
+                                    detectTapGestures(
+                                        onTap = { onSeek(line.timestampMs) }
+                                    )
                                 }
                                 .padding(vertical = 4.dp, horizontal = 12.dp),
                             textAlign = TextAlign.Center,

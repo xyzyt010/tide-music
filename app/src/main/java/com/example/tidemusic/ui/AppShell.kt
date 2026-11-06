@@ -242,9 +242,8 @@ fun AppShell(initialDeepLink: String? = null) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 sections.forEachIndexed { index, navKey ->
@@ -263,44 +262,56 @@ fun AppShell(initialDeepLink: String? = null) {
                                         Download -> "Download"
                                         else -> ""
                                     }
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    Box(
                                         modifier = Modifier
-                                            .clickable { scope.launch { pagerState.animateScrollToPage(index) } }
-                                            .padding(horizontal = 8.dp)
+                                            .weight(1f)
+                                            .clickable { scope.launch { pagerState.animateScrollToPage(index) } },
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        // Active page line indicator directly in sync over the dividing line
-                                        Box(
-                                            modifier = Modifier
-                                                .width(36.dp)
-                                                .height(2.5.dp)
-                                                .background(
-                                                    if (selected) TideColors.accent else Color.Transparent,
-                                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 1.5.dp, bottomEnd = 1.5.dp)
-                                                )
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = label,
-                                            tint = if (selected) TideColors.accent else TideColors.textSecondary
-                                        )
-                                        Spacer(Modifier.height(4.dp))
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                        ) {
+                                            // Active page line indicator directly in sync over the dividing line
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(32.dp)
+                                                    .height(2.5.dp)
+                                                    .background(
+                                                        if (selected) TideColors.accent else Color.Transparent,
+                                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 1.5.dp, bottomEnd = 1.5.dp)
+                                                    )
+                                            )
+                                            Spacer(Modifier.height(5.dp))
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = label,
+                                                tint = if (selected) TideColors.accent else TideColors.textSecondary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(Modifier.height(5.dp))
+                                        }
                                     }
                                 }
 
-                                // "More" overflow menu at the end of the scrollable row
-                                Box {
+                                // "More" overflow menu item as the 5th equally-weighted item
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .clickable { menuOpen = true }
-                                            .padding(horizontal = 8.dp)
                                     ) {
-                                        Box(modifier = Modifier.width(36.dp).height(2.5.dp))
-                                        Spacer(Modifier.height(4.dp))
-                                        Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = TideColors.textSecondary)
-                                        Spacer(Modifier.height(4.dp))
+                                        Box(modifier = Modifier.width(32.dp).height(2.5.dp))
+                                        Spacer(Modifier.height(5.dp))
+                                        Icon(
+                                            imageVector = Icons.Rounded.MoreVert,
+                                            contentDescription = "More",
+                                            tint = TideColors.textSecondary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(Modifier.height(5.dp))
                                     }
                                     DropdownMenu(
                                         expanded = menuOpen,
