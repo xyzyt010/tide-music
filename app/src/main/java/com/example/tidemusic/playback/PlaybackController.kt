@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 /**
  * Bridges the Room-backed queue with the ExoPlayer instance owned by [PlaybackService].
@@ -167,7 +168,15 @@ class PlaybackController constructor(
     fun ensureServiceStarted() {
         try {
             val intent = Intent(context, PlaybackService::class.java)
-            context.startService(intent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    context.startService(intent)
+                } catch (e: IllegalStateException) {
+                    ContextCompat.startForegroundService(context, intent)
+                }
+            } else {
+                context.startService(intent)
+            }
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error starting PlaybackService", e)
         }
@@ -368,6 +377,7 @@ class PlaybackController constructor(
 
             p.shuffleModeEnabled = true
             _isShuffleEnabledState.value = true
+            _shuffleModeState.value = ShuffleMode.ALL
             p.prepare()
             p.playWhenReady = true
             savePlaybackState(immediateSongId = targetSong?.id)
@@ -427,15 +437,54 @@ class PlaybackController constructor(
 
     fun togglePlayPause() {
         ensureServiceStarted()
-        val p = player ?: return
+        val p = player
+        if (p == null) {
+            scope.launch {
+                var retries = 0
+                while (player == null && retries < 15) {
+                    delay(50)
+                    retries++
+                }
+                player?.let { activePlayer ->
+                    handlePlayPause(activePlayer)
+                }
+            }
+            return
+        }
+        handlePlayPause(p)
+    }
+
+    private fun handlePlayPause(p: Player) {
         try {
             if (p.isPlaying) {
                 p.pause()
             } else {
-                if (p.playbackState == Player.STATE_IDLE || p.playerError != null) {
+                val hasError = p.playerError != null
+                val isEnded = p.playbackState == Player.STATE_ENDED
+                val isIdle = p.playbackState == Player.STATE_IDLE
+
+                if (hasError) {
+                    Log.w("PlaybackController", "Recovering from player error in togglePlayPause")
+                    if (p.hasNextMediaItem()) {
+                        p.seekToNextMediaItem()
+                    } else if (p.mediaItemCount > 0) {
+                        p.seekTo(p.currentMediaItemIndex.coerceIn(0, (p.mediaItemCount - 1).coerceAtLeast(0)), 0L)
+                    }
                     p.prepare()
-                } else if (p.playbackState == Player.STATE_ENDED) {
-                    p.seekTo(0, 0L)
+                } else if (isEnded) {
+                    if (p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) {
+                        val curIdx = p.currentMediaItemIndex
+                        val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                        val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                        p.seekTo(targetIndex, 0L)
+                    } else {
+                        val target = if (p.currentMediaItemIndex in 0 until p.mediaItemCount) {
+                            p.currentMediaItemIndex
+                        } else 0
+                        p.seekTo(target, 0L)
+                    }
+                    p.prepare()
+                } else if (isIdle) {
                     p.prepare()
                 }
                 p.play()
@@ -460,20 +509,22 @@ class PlaybackController constructor(
 
     fun play() {
         ensureServiceStarted()
-        val p = player ?: return
-        try {
-            if (!p.isPlaying) {
-                if (p.playbackState == Player.STATE_IDLE || p.playerError != null) {
-                    p.prepare()
-                } else if (p.playbackState == Player.STATE_ENDED) {
-                    p.seekTo(0, 0L)
-                    p.prepare()
+        val p = player
+        if (p == null) {
+            scope.launch {
+                var retries = 0
+                while (player == null && retries < 15) {
+                    delay(50)
+                    retries++
                 }
-                p.play()
-                savePlaybackState()
+                player?.let { activePlayer ->
+                    if (!activePlayer.isPlaying) handlePlayPause(activePlayer)
+                }
             }
-        } catch (e: Exception) {
-            Log.e("PlaybackController", "Error starting playback", e)
+            return
+        }
+        if (!p.isPlaying) {
+            handlePlayPause(p)
         }
     }
 
@@ -492,16 +543,19 @@ class PlaybackController constructor(
             if (p.mediaItemCount > 0) {
                 if (p.hasNextMediaItem()) {
                     p.seekToNextMediaItem()
-                } else if (p.shuffleModeEnabled && p.mediaItemCount > 1) {
+                } else if ((p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) && p.mediaItemCount > 1) {
                     // Reached end of current zero-repeat shuffle deck: generate a brand new hardware-entropy deck
                     val curIdx = p.currentMediaItemIndex
                     val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
                     val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
                     p.seekTo(targetIndex, 0L)
+                } else if (p.repeatMode == Player.REPEAT_MODE_ALL) {
+                    p.seekTo(0, 0L)
                 } else {
                     p.seekTo(0, 0L)
                 }
-                if (!p.isPlaying) p.play()
+                p.prepare()
+                p.play()
             }
             savePlaybackState()
         } catch (e: Exception) {
@@ -520,6 +574,9 @@ class PlaybackController constructor(
                     p.seekToPreviousMediaItem()
                 } else {
                     p.seekTo(0, 0L)
+                }
+                if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED || p.playerError != null) {
+                    p.prepare()
                 }
                 if (!p.isPlaying) p.play()
             }
@@ -839,17 +896,62 @@ class PlaybackController constructor(
             savePlaybackState()
         }
 
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            Log.e("PlaybackController", "Player error encountered: ${error.errorCodeName} (${error.errorCode})", error)
+            val p = player ?: return
+            scope.launch {
+                try {
+                    if (p.mediaItemCount > 1) {
+                        if (p.hasNextMediaItem()) {
+                            p.seekToNextMediaItem()
+                        } else if (p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) {
+                            val curIdx = p.currentMediaItemIndex
+                            val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                            val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                            p.seekTo(targetIndex, 0L)
+                        } else {
+                            p.seekTo(0, 0L)
+                        }
+                        p.prepare()
+                        p.play()
+                    }
+                } catch (e: Exception) {
+                    Log.e("PlaybackController", "Failed auto-recovery on error", e)
+                }
+            }
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             _isPlayingState.value = player?.isPlaying == true
             _currentPlayingSongId.value = player?.currentMediaItem?.mediaId?.toLongOrNull()
             _isShuffleEnabledState.value = player?.shuffleModeEnabled == true
             if (playbackState == Player.STATE_ENDED) {
-                val currentId = player?.currentMediaItem?.mediaId?.toLongOrNull()
-                if (currentId != null) {
-                    scope.launch {
-                        try {
-                            repository.markPlayed(currentId, System.currentTimeMillis())
-                        } catch (_: Exception) {}
+                val p = player
+                if (p != null && p.mediaItemCount > 0) {
+                    val currentId = p.currentMediaItem?.mediaId?.toLongOrNull()
+                    if (currentId != null) {
+                        scope.launch {
+                            try {
+                                repository.markPlayed(currentId, System.currentTimeMillis())
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    if (p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) {
+                        // Reached end of current shuffle deck. Reshuffle continuously with fresh hardware entropy!
+                        val curIdx = p.currentMediaItemIndex
+                        val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                        val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                        p.seekTo(targetIndex, 0L)
+                        p.prepare()
+                        p.play()
+                        savePlaybackState()
+                        return
+                    } else if (p.repeatMode == Player.REPEAT_MODE_ALL) {
+                        p.seekTo(0, 0L)
+                        p.prepare()
+                        p.play()
+                        savePlaybackState()
+                        return
                     }
                 }
             }

@@ -383,6 +383,11 @@ fun MiniPlayerBar(onClick: () -> Unit) {
                 position = controller.currentPosition.toFloat()
                 duration = controller.duration.coerceAtLeast(0L).toFloat()
             }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isPlaying = controller.isPlaying
+                position = controller.currentPosition.toFloat()
+                duration = controller.duration.coerceAtLeast(0L).toFloat()
+            }
             override fun onRepeatModeChanged(mode: Int) {
                 repeatMode = mode
             }

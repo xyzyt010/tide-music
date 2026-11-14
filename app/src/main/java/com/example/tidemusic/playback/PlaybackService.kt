@@ -186,13 +186,19 @@ class PlaybackService : MediaBrowserServiceCompat() {
                                 Player.EVENT_PLAYBACK_STATE_CHANGED,
                                 Player.EVENT_MEDIA_ITEM_TRANSITION,
                                 Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
-                                Player.EVENT_REPEAT_MODE_CHANGED
+                                Player.EVENT_REPEAT_MODE_CHANGED,
+                                Player.EVENT_PLAYER_ERROR
                             )
                         ) {
                             saveState()
                             syncPlaybackAndNotification()
                             applySmartLoudness()
                         }
+                    }
+
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        Log.e(TAG, "PlaybackService onPlayerError: ${error.errorCodeName} (${error.errorCode})", error)
+                        syncPlaybackAndNotification()
                     }
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -324,14 +330,33 @@ class PlaybackService : MediaBrowserServiceCompat() {
     private inner class MediaSessionCallback : MediaSessionCompat.Callback() {
         override fun onPlay() {
             val p = player ?: return
-            if (p.playbackState == Player.STATE_IDLE) {
-                p.prepare()
-            } else if (p.playbackState == Player.STATE_ENDED) {
-                p.seekTo(p.currentMediaItemIndex, 0L)
-                p.prepare()
+            try {
+                if (p.playerError != null) {
+                    Log.w(TAG, "MediaSession onPlay: recovering from player error")
+                    if (p.hasNextMediaItem()) {
+                        p.seekToNextMediaItem()
+                    } else if (p.mediaItemCount > 0) {
+                        p.seekTo(p.currentMediaItemIndex.coerceIn(0, (p.mediaItemCount - 1).coerceAtLeast(0)), 0L)
+                    }
+                    p.prepare()
+                } else if (p.playbackState == Player.STATE_ENDED) {
+                    if (p.shuffleModeEnabled || playbackController.shuffleModeState.value != PlaybackController.ShuffleMode.OFF) {
+                        val curIdx = p.currentMediaItemIndex
+                        val newOrder = playbackController.applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                        val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                        p.seekTo(targetIndex, 0L)
+                    } else {
+                        p.seekTo(p.currentMediaItemIndex.coerceIn(0, (p.mediaItemCount - 1).coerceAtLeast(0)), 0L)
+                    }
+                    p.prepare()
+                } else if (p.playbackState == Player.STATE_IDLE) {
+                    p.prepare()
+                }
+                p.play()
+                syncPlaybackAndNotification()
+            } catch (e: Throwable) {
+                Log.e(TAG, "Error in MediaSession onPlay", e)
             }
-            p.play()
-            syncPlaybackAndNotification()
         }
 
         override fun onPause() {
@@ -658,10 +683,16 @@ class PlaybackService : MediaBrowserServiceCompat() {
             val notif = buildNotification()
             val isPlaying = player != null && (player!!.isPlaying || (player!!.playWhenReady && player!!.playbackState != Player.STATE_IDLE && player!!.playbackState != Player.STATE_ENDED))
             if (isPlaying) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-                } else {
-                    startForeground(NOTIFICATION_ID, notif)
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        startForeground(NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                    } else {
+                        startForeground(NOTIFICATION_ID, notif)
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Failed startForeground (FSSR), falling back to notify", e)
+                    val nm = NotificationManagerCompat.from(this)
+                    nm.notify(NOTIFICATION_ID, notif)
                 }
             } else {
                 stopForegroundCompat(false)

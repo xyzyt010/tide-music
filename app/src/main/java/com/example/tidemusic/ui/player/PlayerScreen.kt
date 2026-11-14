@@ -305,6 +305,7 @@ fun PlayerScreen(
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
+                    isPlaying = this@run.isPlaying
                     position = currentPosition
                     duration = this@run.duration.coerceAtLeast(0L)
                 }
