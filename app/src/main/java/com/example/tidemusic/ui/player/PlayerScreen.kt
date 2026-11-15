@@ -124,8 +124,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.text.font.FontWeight
@@ -281,6 +286,7 @@ fun PlayerScreen(
     var pitchValue by remember { mutableStateOf(1.0f) }
     var shuffleToast by remember { mutableStateOf<String?>(null) }
     var repeatToast by remember { mutableStateOf<String?>(null) }
+    var showPhotoPreview by remember { mutableStateOf(false) }
 
     var currentItem by remember { mutableStateOf<MediaItem?>(controller?.currentMediaItem) }
     var isPlaying by remember { mutableStateOf(controller?.isPlaying ?: false) }
@@ -452,7 +458,7 @@ fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 2.dp),
+                    .padding(horizontal = 14.dp, vertical = 0.dp),
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -473,7 +479,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .padding(horizontal = 20.dp)
                     .navigationBarsPadding()
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 11.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
@@ -482,8 +488,7 @@ fun PlayerScreen(
                     state = pagerState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .heightIn(max = 300.dp),
+                        .weight(1f),
                 ) { page ->
                     if (page == 0) {
                         Box(
@@ -496,20 +501,50 @@ fun PlayerScreen(
                                 song = s,
                                 modifier = Modifier
                                     .fillMaxWidth(0.85f)
-                                    .heightIn(max = 280.dp),
+                                    .heightIn(max = 280.dp)
+                                    .pointerInput(s.id) {
+                                        detectTapGestures(
+                                            onDoubleTap = { showPhotoPreview = true }
+                                        )
+                                    },
                                 isPlaying = isPlaying,
                             )
                         }
                     } else {
-                        LyricsCanvasView(
-                            song = s,
-                            positionMs = position.toLong(),
-                            onSeek = { controller?.seekTo(it) },
-                            canAutoScroll = pagerState.currentPage == 1 && !pagerState.isScrollInProgress && pagerState.currentPageOffsetFraction == 0f,
+                        var swipeAccumulator by remember { mutableFloatStateOf(0f) }
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(vertical = 4.dp),
-                        )
+                                .pointerInput(Unit) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { swipeAccumulator = 0f },
+                                        onDragEnd = {
+                                            if (swipeAccumulator > 30f) {
+                                                scope.launch { pagerState.animateScrollToPage(0) }
+                                            }
+                                            swipeAccumulator = 0f
+                                        },
+                                        onDragCancel = { swipeAccumulator = 0f },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            swipeAccumulator += dragAmount
+                                            if (swipeAccumulator > 50f) {
+                                                scope.launch { pagerState.animateScrollToPage(0) }
+                                                change.consume()
+                                            }
+                                        }
+                                    )
+                                }
+                        ) {
+                            LyricsCanvasView(
+                                song = s,
+                                positionMs = position.toLong(),
+                                onSeek = { controller?.seekTo(it) },
+                                canAutoScroll = pagerState.currentPage == 1 && !pagerState.isScrollInProgress && pagerState.currentPageOffsetFraction == 0f,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 4.dp),
+                            )
+                        }
                     }
                 }
 
@@ -545,7 +580,7 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -724,7 +759,7 @@ fun PlayerScreen(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(32.dp)
+                            .height(20.dp)
                             .pointerInput(maxDuration) {
                                 detectHorizontalDragGestures(
                                     onDragStart = { offset ->
@@ -808,7 +843,7 @@ fun PlayerScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 // Transport controls: Previous, Play/Pause, Next
                 Row(
@@ -818,7 +853,7 @@ fun PlayerScreen(
                 ) {
                     IconButton(
                         onClick = { ServiceLocator.playbackController.previous() },
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(50.dp),
                     ) {
                         Icon(Icons.Rounded.SkipPrevious, "Previous", tint = TideColors.textPrimary, modifier = Modifier.size(38.dp))
                     }
@@ -835,14 +870,22 @@ fun PlayerScreen(
                     }
                     IconButton(
                         onClick = { ServiceLocator.playbackController.next() },
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(50.dp),
                     ) {
                         Icon(Icons.Rounded.SkipNext, "Next", tint = TideColors.textPrimary, modifier = Modifier.size(38.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(36.dp))
+                Spacer(modifier = Modifier.height(25.dp))
             }
+        }
+
+        if (showPhotoPreview && s != null) {
+            PhotoZoomPreview(
+                song = s,
+                isPlaying = isPlaying,
+                onClose = { showPhotoPreview = false },
+            )
         }
     }
 
@@ -1596,11 +1639,11 @@ fun LyricsCanvasView(
                             color = textColor,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .pointerInput(line.timestampMs) {
-                                    detectTapGestures(
-                                        onTap = { onSeek(line.timestampMs) }
-                                    )
-                                }
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { onSeek(line.timestampMs) }
+                                )
                                 .padding(vertical = 4.dp, horizontal = 12.dp),
                             textAlign = TextAlign.Center,
                         )
@@ -1629,6 +1672,120 @@ fun LyricsCanvasView(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Full-screen zoomable photo preview with pinch-to-zoom, pan, black background, and close cross. */
+@Composable
+fun PhotoZoomPreview(
+    song: Song,
+    isPlaying: Boolean = true,
+    onClose: () -> Unit,
+) {
+    BackHandler(onBack = onClose)
+
+    val artworkModel = remember(song.id, song.filePath, song.uri, song.dateModified) {
+        com.example.tidemusic.util.SongArtworkRequest(
+            songId = song.id,
+            filePath = song.filePath,
+            uriString = song.uri,
+            dateModified = song.dateModified,
+        )
+    }
+
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    var imageSuccess by remember(song.id) { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.94f))
+            .zIndex(100f)
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val newScale = (scale * zoom).coerceIn(1f, 5f)
+                    scale = newScale
+                    if (newScale > 1f) {
+                        val maxOffsetX = (size.width * (newScale - 1f)) / 2f
+                        val maxOffsetY = (size.height * (newScale - 1f)) / 2f
+                        offsetX = (offsetX + pan.x * newScale).coerceIn(-maxOffsetX, maxOffsetX)
+                        offsetY = (offsetY + pan.y * newScale).coerceIn(-maxOffsetY, maxOffsetY)
+                    } else {
+                        offsetX = 0f
+                        offsetY = 0f
+                    }
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (scale > 1.2f) {
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                        } else {
+                            scale = 2.5f
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = artworkModel,
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                },
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            onState = { state ->
+                imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
+            },
+        )
+
+        if (!imageSuccess) {
+            com.example.tidemusic.ui.common.VinylDiscPlaceholder(
+                modifier = Modifier
+                    .size(280.dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
+                    },
+                spinning = isPlaying,
+            )
+        }
+
+        IconButton(
+            onClick = {
+                scale = 1f
+                offsetX = 0f
+                offsetY = 0f
+                onClose()
+            },
+            modifier = Modifier
+                .statusBarsPadding()
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+                .size(44.dp)
+                .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = "Close preview",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp),
+            )
         }
     }
 }
