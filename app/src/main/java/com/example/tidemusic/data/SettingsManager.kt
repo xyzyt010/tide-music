@@ -1,0 +1,167 @@
+package com.example.tidemusic.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.example.tidemusic.ui.common.SortCriteria
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
+class SettingsManager(context: Context) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("tide_settings", Context.MODE_PRIVATE)
+
+    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("dark_mode", true))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode
+
+    fun setDarkMode(enabled: Boolean) {
+        prefs.edit().putBoolean("dark_mode", enabled).apply()
+        _isDarkMode.value = enabled
+    }
+
+    /** Custom theme (background) color in ARGB Int, or null for default OLED black / white. */
+    private val _customThemeColor = MutableStateFlow<Int?>(
+        if (prefs.contains("custom_theme_color")) prefs.getInt("custom_theme_color", 0) else null
+    )
+    val customThemeColor: StateFlow<Int?> = _customThemeColor
+
+    fun setCustomThemeColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_theme_color").apply()
+        } else {
+            prefs.edit().putInt("custom_theme_color", color).apply()
+        }
+        _customThemeColor.value = color
+    }
+
+    /** Custom highlight (accent) color in ARGB Int, or null for default #0781FA. */
+    private val _customHighlightColor = MutableStateFlow<Int?>(
+        if (prefs.contains("custom_highlight_color")) prefs.getInt("custom_highlight_color", 0) else null
+    )
+    val customHighlightColor: StateFlow<Int?> = _customHighlightColor
+
+    fun setCustomHighlightColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_highlight_color").apply()
+        } else {
+            prefs.edit().putInt("custom_highlight_color", color).apply()
+        }
+        _customHighlightColor.value = color
+    }
+
+    /** Custom primary text color in ARGB Int, or null for default white/black. */
+    private val _customTextColor = MutableStateFlow<Int?>(
+        if (prefs.contains("custom_text_color")) prefs.getInt("custom_text_color", 0) else null
+    )
+    val customTextColor: StateFlow<Int?> = _customTextColor
+
+    fun setCustomTextColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_text_color").apply()
+        } else {
+            prefs.edit().putInt("custom_text_color", color).apply()
+        }
+        _customTextColor.value = color
+    }
+
+    /** Frosted-glass (blurred artwork backdrop) effects on the player & mini-player. */
+    private val _isGlassEffectsEnabled = MutableStateFlow(prefs.getBoolean("glass_effects", true))
+    val isGlassEffectsEnabled: StateFlow<Boolean> = _isGlassEffectsEnabled
+
+    fun setGlassEffectsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("glass_effects", enabled).apply()
+        _isGlassEffectsEnabled.value = enabled
+    }
+
+    /** Controls whether lyrics automatically scroll and track live audio position. */
+    private val _isLyricsAutoScrollEnabled = MutableStateFlow(prefs.getBoolean("lyrics_auto_scroll", true))
+    val isLyricsAutoScrollEnabled: StateFlow<Boolean> = _isLyricsAutoScrollEnabled
+
+    fun setLyricsAutoScrollEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("lyrics_auto_scroll", enabled).apply()
+        _isLyricsAutoScrollEnabled.value = enabled
+    }
+
+    /** Controls whether the floating mini player bar is displayed above the bottom navigation. */
+    private val _isMiniPlayerEnabled = MutableStateFlow(prefs.getBoolean("mini_player_enabled", true))
+    val isMiniPlayerEnabled: StateFlow<Boolean> = _isMiniPlayerEnabled
+
+    fun setMiniPlayerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("mini_player_enabled", enabled).apply()
+        _isMiniPlayerEnabled.value = enabled
+    }
+
+    /** Controls whether the Aqua Dynamics Punch-Hole Status Bar Capsule is active over other apps. */
+    private val _isAquaDynamicsPillEnabled = MutableStateFlow(prefs.getBoolean("aqua_dynamics_pill_enabled", true))
+    val isAquaDynamicsPillEnabled: StateFlow<Boolean> = _isAquaDynamicsPillEnabled
+
+    fun setAquaDynamicsPillEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("aqua_dynamics_pill_enabled", enabled).apply()
+        _isAquaDynamicsPillEnabled.value = enabled
+    }
+
+    /** Controls Smart Volume Extra (hardware-accelerated loudness extension matching YouTube). */
+    private val _isSmartLoudnessEnabled = MutableStateFlow(prefs.getBoolean("smart_loudness_enabled", true))
+    val isSmartLoudnessEnabled: StateFlow<Boolean> = _isSmartLoudnessEnabled
+
+    fun setSmartLoudnessEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("smart_loudness_enabled", enabled).apply()
+        _isSmartLoudnessEnabled.value = enabled
+    }
+
+    /** Smart Volume boost in millibels (default 300 mB = +3.0 dB clean extension). */
+    private val _smartLoudnessGainMb = MutableStateFlow(prefs.getInt("smart_loudness_gain_mb", 300))
+    val smartLoudnessGainMb: StateFlow<Int> = _smartLoudnessGainMb
+
+    fun setSmartLoudnessGainMb(gainMb: Int) {
+        prefs.edit().putInt("smart_loudness_gain_mb", gainMb).apply()
+        _smartLoudnessGainMb.value = gainMb
+    }
+
+    /**
+     * Retrieves saved sort criteria for a given playlist (or default screen key).
+     * Defaults to A-Z (TITLE_ASC) for all playlists as requested by user.
+     */
+    fun getSortCriteria(key: String): List<SortCriteria> {
+        val saved = prefs.getString("sort_criteria_$key", null) ?: return listOf(SortCriteria.TITLE_ASC)
+        if (saved.isBlank()) return listOf(SortCriteria.TITLE_ASC)
+        return saved.split(",").mapNotNull { name ->
+            try {
+                SortCriteria.valueOf(name.trim())
+            } catch (e: Exception) {
+                null
+            }
+        }.ifEmpty { listOf(SortCriteria.TITLE_ASC) }
+    }
+
+    /**
+     * Saves sort criteria for a given playlist or screen key to SharedPreferences.
+     */
+    fun saveSortCriteria(key: String, criteria: List<SortCriteria>) {
+        val str = criteria.joinToString(",") { it.name }
+        prefs.edit().putString("sort_criteria_$key", str).apply()
+    }
+
+    fun getExcludedFolders(): Set<String> {
+        return prefs.getStringSet("excluded_folders", emptySet()) ?: emptySet()
+    }
+
+    fun saveExcludedFolders(folders: Set<String>) {
+        prefs.edit().putStringSet("excluded_folders", folders).apply()
+    }
+
+    fun getCustomIncludeFolders(): Set<String> {
+        return prefs.getStringSet("custom_include_folders", emptySet()) ?: emptySet()
+    }
+
+    fun saveCustomIncludeFolders(folders: Set<String>) {
+        prefs.edit().putStringSet("custom_include_folders", folders).apply()
+    }
+
+    /** Downloader engine: "yt-dlp" (full features) or "rust" (YouTube audio-only fast path). */
+    fun getDownloaderEngine(): String {
+        return prefs.getString("downloader_engine", "yt-dlp") ?: "yt-dlp"
+    }
+
+    fun setDownloaderEngine(engine: String) {
+        prefs.edit().putString("downloader_engine", engine).apply()
+    }
+}

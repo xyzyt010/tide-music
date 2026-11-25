@@ -1,0 +1,1031 @@
+package com.example.tidemusic.playback
+
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import com.example.tidemusic.domain.LibraryRepository
+import com.example.tidemusic.domain.Song
+import com.example.tidemusic.util.AudioArtworkFetcher
+import com.example.tidemusic.util.PlaceholderArt
+import com.example.tidemusic.util.orUnknown
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+
+/**
+ * Bridges the Room-backed queue with the ExoPlayer instance owned by [PlaybackService].
+ *
+ * All operations are crash-proof with boundary checking and safe try-catch blocks.
+ * Continuously persists playback state (queue IDs, active song index, seek position) to
+ * SharedPreferences so the queue & playback state remain preserved across app restarts and updates.
+ */
+class PlaybackController constructor(
+    private val context: Context,
+    private val repository: LibraryRepository,
+) {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val secureRandom = java.security.SecureRandom()
+    private val recentPlayedSongIds = ArrayDeque<Long>()
+    private var lastPlayedMediaId: Long? = null
+    private var saveStateJob: kotlinx.coroutines.Job? = null
+    private var shuffleAllJob: kotlinx.coroutines.Job? = null
+    private var pendingQueueAction: (() -> Unit)? = null
+    private var consecutiveErrorCount = 0
+    private var lastSavedQueueKey: String? = null
+    private var player: Player? = null
+
+    private fun recordRecentPlayed(id: Long) {
+        synchronized(recentPlayedSongIds) {
+            recentPlayedSongIds.remove(id)
+            recentPlayedSongIds.addLast(id)
+            while (recentPlayedSongIds.size > 50) {
+                recentPlayedSongIds.removeFirst()
+            }
+        }
+    }
+
+    private fun getRecentIndicesForPlayer(p: Player): Set<Int> {
+        val count = p.mediaItemCount
+        if (count <= 1) return emptySet()
+        val set = HashSet<Int>()
+        val recentSnapshot = synchronized(recentPlayedSongIds) { recentPlayedSongIds.toList() }
+        val windowSize = (count * 0.5f).toInt().coerceIn(1, 30)
+        val recentSet = recentSnapshot.takeLast(windowSize).toSet()
+        for (i in 0 until count) {
+            val mId = p.getMediaItemAt(i).mediaId.toLongOrNull()
+            if (mId != null && recentSet.contains(mId)) {
+                set.add(i)
+            }
+        }
+        return set
+    }
+
+    fun applyHardwareEntropyShuffle(
+        p: Player,
+        fixedFirstIndex: Int? = null,
+        avoidFirstIndex: Int? = null
+    ): androidx.media3.exoplayer.source.ShuffleOrder {
+        val exo = p as? androidx.media3.exoplayer.ExoPlayer
+        val count = p.mediaItemCount
+        val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+        val order = HardwareEntropyShuffle.createShuffleOrder(
+            count = count,
+            fixedFirstIndex = fixedFirstIndex,
+            avoidFirstIndex = avoidFirstIndex,
+            seed = seed
+        )
+        exo?.setShuffleOrder(order)
+        return order
+    }
+
+    val audioSessionId: Int
+        get() = (player as? androidx.media3.exoplayer.ExoPlayer)?.audioSessionId ?: 0
+
+    val isPlaying: Boolean
+        get() = player?.isPlaying == true
+
+    val currentTitle: String?
+        get() = player?.currentMediaItem?.mediaMetadata?.title?.toString()
+
+    val currentArtist: String?
+        get() = player?.currentMediaItem?.mediaMetadata?.artist?.toString()
+
+    val currentPosition: Long
+        get() = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
+
+    val duration: Long
+        get() = player?.duration?.coerceAtLeast(0L) ?: 0L
+
+    val currentMediaId: Long?
+        get() = player?.currentMediaItem?.mediaId?.toLongOrNull()
+
+    val mediaItemCount: Int
+        get() = player?.mediaItemCount ?: 0
+
+    private val _currentPlayingSongId = MutableStateFlow<Long?>(null)
+    val currentPlayingSongId: StateFlow<Long?> = _currentPlayingSongId.asStateFlow()
+
+    private val _isPlayingState = MutableStateFlow(false)
+    val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
+
+    enum class ShuffleMode(val value: Int) {
+        OFF(0),      // Straight / sequential play
+        QUEUE(1),    // Shuffle within current playlist / queue
+        ALL(2);      // Shuffle all songs from library
+
+        companion object {
+            fun fromValue(value: Int): ShuffleMode = entries.firstOrNull { it.value == value } ?: OFF
+        }
+    }
+
+    private val _shuffleModeState = MutableStateFlow(ShuffleMode.OFF)
+    val shuffleModeState: StateFlow<ShuffleMode> = _shuffleModeState.asStateFlow()
+
+    private val _isShuffleEnabledState = MutableStateFlow(false)
+    val isShuffleEnabledState: StateFlow<Boolean> = _isShuffleEnabledState.asStateFlow()
+
+    private val _playerState = MutableStateFlow<Player?>(null)
+    val playerState: StateFlow<Player?> = _playerState.asStateFlow()
+
+    fun toggleFavoriteCurrentSong(onResult: ((Boolean) -> Unit)? = null) {
+        val id = currentMediaId ?: return
+        ioScope.launch {
+            try {
+                val next = repository.toggleFavorite(id)
+                if (onResult != null) {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onResult(next)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PlaybackController", "Error toggling favorite", e)
+            }
+        }
+    }
+
+    fun checkIsFavorite(songId: Long, callback: (Boolean) -> Unit) {
+        ioScope.launch {
+            try {
+                val isFav = repository.getSong(songId)?.isFavorite == true
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    callback(isFav)
+                }
+            } catch (e: Exception) {
+                Log.e("PlaybackController", "Error checking favorite", e)
+            }
+        }
+    }
+
+    fun ensureServiceStarted() {
+        try {
+            val intent = Intent(context, PlaybackService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    context.startService(intent)
+                } catch (e: IllegalStateException) {
+                    ContextCompat.startForegroundService(context, intent)
+                }
+            } else {
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error starting PlaybackService", e)
+        }
+    }
+
+    fun playPause() {
+        togglePlayPause()
+    }
+
+    suspend fun isCurrentSongFavorite(): Boolean {
+        val id = currentMediaId ?: return false
+        return repository.getSong(id)?.isFavorite == true
+    }
+
+    /** Bound during [PlaybackService.onCreate]; released during onDestroy. */
+    fun attachPlayer(p: Player) {
+        if (player === p) return
+        try {
+            player?.removeListener(listener)
+        } catch (_: Exception) {}
+        player = p
+        _playerState.value = p
+        try {
+            p.addListener(listener)
+            _currentPlayingSongId.value = p.currentMediaItem?.mediaId?.toLongOrNull()
+            _isPlayingState.value = p.isPlaying
+            val pending = pendingQueueAction
+            pendingQueueAction = null
+            if (pending != null) {
+                pending.invoke()
+            } else {
+                _isShuffleEnabledState.value = p.shuffleModeEnabled
+                if (!p.shuffleModeEnabled) {
+                    _shuffleModeState.value = ShuffleMode.OFF
+                } else if (_shuffleModeState.value == ShuffleMode.OFF) {
+                    _shuffleModeState.value = ShuffleMode.QUEUE
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /** Restores saved [ShuffleMode] state without launching an async queue replacement. */
+    fun restoreShuffleState(mode: ShuffleMode) {
+        _shuffleModeState.value = mode
+        _isShuffleEnabledState.value = mode != ShuffleMode.OFF
+        player?.shuffleModeEnabled = mode != ShuffleMode.OFF
+    }
+
+    fun detachPlayer() {
+        try {
+            player?.removeListener(listener)
+        } catch (_: Exception) {}
+        player = null
+        _playerState.value = null
+    }
+
+    /** Convert domain Song → MediaItem with full [MediaMetadata] for the notification. */
+    fun mediaItemFor(song: Song): MediaItem {
+        val extras = android.os.Bundle().apply {
+            putString(EXTRA_FILE_PATH, song.filePath)
+            putString(EXTRA_MIME_TYPE, song.mimeType)
+            putLong(EXTRA_SIZE, song.size)
+            putInt(EXTRA_BITRATE, song.bitrate)
+            putInt(EXTRA_SAMPLE_RATE, song.sampleRate)
+            putLong(EXTRA_DURATION_MS, song.durationMs)
+            putLong(EXTRA_DATE_ADDED, song.dateAdded)
+            putLong(EXTRA_DATE_MODIFIED, song.dateModified)
+            putInt(EXTRA_PLAY_COUNT, song.playCount)
+            song.lastPlayedTimestamp?.let { putLong(EXTRA_LAST_PLAYED, it) }
+        }
+        // ALWAYS set a per-song artwork URI (tide-art:// scheme). It is resolved by
+        // TideArtworkBitmapLoader: embedded art when present, else a deterministic
+        // placeholder gradient. NEVER fall back to the audio file's own content URI —
+        // that decodes as an image never succeeds, and a failed bitmap load makes the
+        // system media card keep showing the PREVIOUS song's artwork (the stale/wrong
+        // lock-screen art bug).
+        val artUri = ArtworkUri.forSong(
+            songId = song.id,
+            filePath = song.filePath,
+            sourceUri = song.uri,
+            dateModified = song.dateModified,
+        )
+        extras.putString(EXTRA_ARTWORK_URI, artUri.toString())
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(song.title.ifBlank { "Unknown" })
+            .setArtist(song.artist.orUnknown())
+            .setAlbumTitle(song.album.orUnknown())
+            .setAlbumArtist(song.artist.orUnknown())
+            .setTrackNumber(song.trackNumber.takeIf { it > 0 })
+            .setDiscNumber(song.discNumber.takeIf { it > 0 })
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .setArtworkUri(artUri)
+            .setExtras(extras)
+            .build()
+        return MediaItem.Builder()
+            .setMediaId(song.id.toString())
+            .setUri(song.uri)
+            .setMediaMetadata(metadata)
+            .build()
+    }
+
+    companion object {
+        const val EXTRA_FILE_PATH = "tide_file_path"
+        const val EXTRA_MIME_TYPE = "tide_mime"
+        const val EXTRA_SIZE = "tide_size"
+        const val EXTRA_BITRATE = "tide_bitrate"
+        const val EXTRA_SAMPLE_RATE = "tide_sample_rate"
+        const val EXTRA_DURATION_MS = "tide_duration_ms"
+        const val EXTRA_DATE_ADDED = "tide_date_added"
+        const val EXTRA_DATE_MODIFIED = "tide_date_modified"
+        const val EXTRA_PLAY_COUNT = "tide_play_count"
+        const val EXTRA_LAST_PLAYED = "tide_last_played"
+        const val EXTRA_ARTWORK_URI = "tide_artwork_uri"
+    }
+
+    fun setQueue(songs: List<Song>, startIndex: Int = 0) {
+        ensureServiceStarted()
+        val p = player
+        if (p == null) {
+            pendingQueueAction = { setQueue(songs, startIndex) }
+            return
+        }
+        shuffleAllJob?.cancel()
+        shuffleAllJob = null
+        consecutiveErrorCount = 0
+        try {
+            if (songs.isEmpty()) {
+                p.clearMediaItems()
+                savePlaybackState()
+                return
+            }
+            val mediaItems = songs.map(::mediaItemFor)
+            val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
+
+            // Asynchronously pre-decode artwork bitmap for the track about to play
+            val targetSong = songs.getOrNull(safeIndex)
+            if (targetSong != null) {
+                ioScope.launch {
+                    SongArtworkCache.getOrDecode(
+                        context,
+                        targetSong.id,
+                        targetSong.filePath,
+                        targetSong.uri
+                    )
+                }
+            }
+
+            // Preserve active shuffle mode (QUEUE or ALL) seamlessly across playlist/search switches.
+            val shouldShuffle = _shuffleModeState.value != ShuffleMode.OFF || p.shuffleModeEnabled
+            if (shouldShuffle && _shuffleModeState.value == ShuffleMode.OFF) {
+                _shuffleModeState.value = ShuffleMode.QUEUE
+            }
+            _isShuffleEnabledState.value = shouldShuffle
+
+            p.setMediaItems(mediaItems, safeIndex, 0L)
+            p.shuffleModeEnabled = shouldShuffle
+            if (shouldShuffle && mediaItems.size > 1) {
+                applyHardwareEntropyShuffle(p, fixedFirstIndex = safeIndex)
+            }
+            p.prepare()
+            p.playWhenReady = true
+            savePlaybackState(immediateSongId = targetSong?.id)
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error setting queue", e)
+        }
+    }
+
+    /**
+     * Shuffles all [songs] using hardware-entropy sampling (battery, voltage, temperature, clocks, memory).
+     * If [startingSongId] is provided, that song begins playback first; otherwise, a random starting track
+     * is chosen from unplayed songs (preventing the "always starts at track 1" issue).
+     */
+    fun shuffleAll(songs: List<Song>, startingSongId: Long? = null) {
+        ensureServiceStarted()
+        val p = player
+        if (p == null) {
+            pendingQueueAction = { shuffleAll(songs, startingSongId) }
+            return
+        }
+        shuffleAllJob?.cancel()
+        shuffleAllJob = null
+        consecutiveErrorCount = 0
+        try {
+            if (songs.isEmpty()) {
+                p.clearMediaItems()
+                savePlaybackState()
+                return
+            }
+            val mediaItems = songs.map(::mediaItemFor)
+            val count = mediaItems.size
+
+            val chosenIndex: Int
+            if (startingSongId != null) {
+                val idx = songs.indexOfFirst { it.id == startingSongId }
+                chosenIndex = if (idx >= 0) idx else 0
+            } else if (count > 1) {
+                // Pick a random starting song from songs not played recently
+                val recentSnapshot = synchronized(recentPlayedSongIds) { recentPlayedSongIds.toSet() }
+                val freshIndices = songs.indices.filter { !recentSnapshot.contains(songs[it].id) }
+                val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+                val rng = java.util.Random(seed)
+                chosenIndex = if (freshIndices.isNotEmpty()) {
+                    freshIndices[rng.nextInt(freshIndices.size)]
+                } else {
+                    rng.nextInt(count)
+                }
+            } else {
+                chosenIndex = 0
+            }
+
+            // Pre-decode artwork bitmap for chosen song
+            val targetSong = songs.getOrNull(chosenIndex)
+            if (targetSong != null) {
+                ioScope.launch {
+                    SongArtworkCache.getOrDecode(
+                        context,
+                        targetSong.id,
+                        targetSong.filePath,
+                        targetSong.uri
+                    )
+                }
+            }
+
+            p.setMediaItems(mediaItems, chosenIndex, 0L)
+            p.shuffleModeEnabled = true
+            _isShuffleEnabledState.value = true
+            _shuffleModeState.value = ShuffleMode.ALL
+
+            if (count > 1) {
+                applyHardwareEntropyShuffle(p, fixedFirstIndex = chosenIndex)
+            }
+
+            p.prepare()
+            p.playWhenReady = true
+            savePlaybackState(immediateSongId = targetSong?.id)
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error in shuffleAll", e)
+        }
+    }
+
+    fun playNext(currentIndex: Int, song: Song) {
+        ensureServiceStarted()
+        val p = player ?: return
+        try {
+            val count = p.mediaItemCount
+            if (count == 0) {
+                playSong(song)
+                return
+            }
+            val base = if (currentIndex >= 0) currentIndex else p.currentMediaItemIndex.coerceAtLeast(0)
+            val insertPos = (base + 1).coerceIn(0, count)
+            p.addMediaItem(insertPos, mediaItemFor(song))
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error adding playNext", e)
+        }
+    }
+
+    /** Insert [song] to play immediately after the currently playing item. */
+    fun playNext(song: Song) {
+        ensureServiceStarted()
+        val p = player
+        if (p == null || p.mediaItemCount == 0) {
+            playSong(song)
+            return
+        }
+        playNext(p.currentMediaItemIndex.coerceAtLeast(0), song)
+    }
+
+    fun addToQueue(song: Song) {
+        val p = player ?: return
+        try {
+            p.addMediaItem(mediaItemFor(song))
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error adding to queue", e)
+        }
+    }
+
+    fun addToQueue(songs: List<Song>) {
+        val p = player ?: return
+        try {
+            p.addMediaItems(songs.map(::mediaItemFor))
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error adding multiple to queue", e)
+        }
+    }
+
+    fun togglePlayPause() {
+        ensureServiceStarted()
+        val p = player
+        if (p == null) {
+            scope.launch {
+                var retries = 0
+                while (player == null && retries < 15) {
+                    delay(50)
+                    retries++
+                }
+                player?.let { activePlayer ->
+                    handlePlayPause(activePlayer)
+                }
+            }
+            return
+        }
+        handlePlayPause(p)
+    }
+
+    private fun handlePlayPause(p: Player) {
+        try {
+            if (p.isPlaying) {
+                p.pause()
+            } else {
+                val hasError = p.playerError != null
+                val isEnded = p.playbackState == Player.STATE_ENDED
+                val isIdle = p.playbackState == Player.STATE_IDLE
+
+                if (hasError) {
+                    Log.w("PlaybackController", "Recovering from player error in togglePlayPause")
+                    if (p.hasNextMediaItem()) {
+                        p.seekToNextMediaItem()
+                    } else if (p.mediaItemCount > 0) {
+                        p.seekTo(p.currentMediaItemIndex.coerceIn(0, (p.mediaItemCount - 1).coerceAtLeast(0)), 0L)
+                    }
+                    p.prepare()
+                } else if (isEnded) {
+                    if (p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) {
+                        val curIdx = p.currentMediaItemIndex
+                        val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                        val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                        p.seekTo(targetIndex, 0L)
+                    } else {
+                        val target = if (p.currentMediaItemIndex in 0 until p.mediaItemCount) {
+                            p.currentMediaItemIndex
+                        } else 0
+                        p.seekTo(target, 0L)
+                    }
+                    p.prepare()
+                } else if (isIdle) {
+                    p.prepare()
+                }
+                p.play()
+            }
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error toggling play/pause", e)
+        }
+    }
+
+    fun pause() {
+        val p = player ?: return
+        try {
+            if (p.isPlaying) {
+                p.pause()
+                savePlaybackState()
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error pausing playback", e)
+        }
+    }
+
+    fun play() {
+        ensureServiceStarted()
+        val p = player
+        if (p == null) {
+            scope.launch {
+                var retries = 0
+                while (player == null && retries < 15) {
+                    delay(50)
+                    retries++
+                }
+                player?.let { activePlayer ->
+                    if (!activePlayer.isPlaying) handlePlayPause(activePlayer)
+                }
+            }
+            return
+        }
+        if (!p.isPlaying) {
+            handlePlayPause(p)
+        }
+    }
+
+    fun playSong(song: Song) {
+        setQueue(listOf(song), 0)
+    }
+
+    fun toggleRepeat(): Int {
+        return cycleRepeat()
+    }
+
+    fun next() {
+        ensureServiceStarted()
+        val p = player ?: return
+        try {
+            if (p.mediaItemCount > 0) {
+                if (p.hasNextMediaItem()) {
+                    p.seekToNextMediaItem()
+                } else if ((p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) && p.mediaItemCount > 1) {
+                    // Reached end of current zero-repeat shuffle deck: generate a brand new hardware-entropy deck
+                    val curIdx = p.currentMediaItemIndex
+                    val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                    val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                    p.seekTo(targetIndex, 0L)
+                } else if (p.repeatMode == Player.REPEAT_MODE_ALL) {
+                    p.seekTo(0, 0L)
+                } else {
+                    p.seekTo(0, 0L)
+                }
+                p.prepare()
+                p.play()
+            }
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error seeking to next", e)
+        }
+    }
+
+    fun previous() {
+        ensureServiceStarted()
+        val p = player ?: return
+        try {
+            if (p.mediaItemCount > 0) {
+                if (p.currentPosition > 3000L) {
+                    p.seekTo(0L)
+                } else if (p.hasPreviousMediaItem()) {
+                    p.seekToPreviousMediaItem()
+                } else {
+                    p.seekTo(0, 0L)
+                }
+                if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED || p.playerError != null) {
+                    p.prepare()
+                }
+                if (!p.isPlaying) p.play()
+            }
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error seeking to previous", e)
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        val p = player ?: return
+        try {
+            if (p.mediaItemCount > 0) {
+                val dur = p.duration.coerceAtLeast(0L)
+                val target = if (dur > 0) positionMs.coerceIn(0L, dur) else positionMs.coerceAtLeast(0L)
+                p.seekTo(target)
+            }
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error seeking position", e)
+        }
+    }
+
+    fun stop() {
+        val p = player ?: return
+        try {
+            p.stop()
+            p.clearMediaItems()
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error stopping playback", e)
+        }
+    }
+
+    fun clearQueue() {
+        val p = player ?: return
+        try {
+            p.stop()
+            p.clearMediaItems()
+            savePlaybackState()
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error clearing queue", e)
+        }
+    }
+
+    val isShuffleEnabled: Boolean
+        get() = _shuffleModeState.value != ShuffleMode.OFF
+
+    fun setShuffleMode(mode: ShuffleMode) {
+        val p = player ?: return
+        shuffleAllJob?.cancel()
+        shuffleAllJob = null
+        try {
+            when (mode) {
+                ShuffleMode.OFF -> {
+                    p.shuffleModeEnabled = false
+                    _shuffleModeState.value = ShuffleMode.OFF
+                    _isShuffleEnabledState.value = false
+                    savePlaybackState()
+                }
+                ShuffleMode.QUEUE -> {
+                    p.shuffleModeEnabled = true
+                    if (p.mediaItemCount > 1) {
+                        val curIdx = p.currentMediaItemIndex.coerceIn(0, p.mediaItemCount - 1)
+                        applyHardwareEntropyShuffle(p, fixedFirstIndex = curIdx)
+                    }
+                    _shuffleModeState.value = ShuffleMode.QUEUE
+                    _isShuffleEnabledState.value = true
+                    savePlaybackState()
+                }
+                ShuffleMode.ALL -> {
+                    p.shuffleModeEnabled = true
+                    _shuffleModeState.value = ShuffleMode.ALL
+                    _isShuffleEnabledState.value = true
+                    shuffleAllJob = scope.launch {
+                        try {
+                            val allSongs = repository.observeAllSongs().first()
+                            if (allSongs.isNotEmpty()) {
+                                val currentId = p.currentMediaItem?.mediaId?.toLongOrNull()
+                                val count = p.mediaItemCount
+                                if (count > 0 && currentId != null) {
+                                    // A song is currently playing or loaded.
+                                    // Do NOT call setMediaItems/prepare, which causes an audio blip/cut-off!
+                                    val curIdx = p.currentMediaItemIndex.coerceIn(0, (count - 1).coerceAtLeast(0))
+                                    if (count == allSongs.size) {
+                                        // Queue already contains all songs: apply hardware shuffle without reloading
+                                        applyHardwareEntropyShuffle(p, fixedFirstIndex = curIdx)
+                                    } else {
+                                        // Keep current item playing smoothly at index 0, append other songs
+                                        if (p.mediaItemCount > curIdx + 1) {
+                                            p.removeMediaItems(curIdx + 1, p.mediaItemCount)
+                                        }
+                                        if (curIdx > 0) {
+                                            p.removeMediaItems(0, curIdx)
+                                        }
+                                        val otherSongs = allSongs.filter { it.id != currentId }
+                                        p.addMediaItems(otherSongs.map(::mediaItemFor))
+                                        applyHardwareEntropyShuffle(p, fixedFirstIndex = 0)
+                                    }
+                                    p.shuffleModeEnabled = true
+                                    savePlaybackState()
+                                } else {
+                                    // Player is empty / idle
+                                    val seed = HardwareEntropyShuffle.sampleHardwareSeed(context)
+                                    val chosenIndex = java.util.Random(seed).nextInt(allSongs.size)
+                                    val mediaItems = allSongs.map(::mediaItemFor)
+                                    p.setMediaItems(mediaItems, chosenIndex, 0L)
+                                    p.shuffleModeEnabled = true
+                                    if (mediaItems.size > 1) {
+                                        applyHardwareEntropyShuffle(p, fixedFirstIndex = chosenIndex)
+                                    }
+                                    p.prepare()
+                                    p.play()
+                                    savePlaybackState()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            if (e !is kotlinx.coroutines.CancellationException) {
+                                Log.e("PlaybackController", "Error activating Shuffle All", e)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error setting shuffle mode $mode", e)
+        }
+    }
+
+    fun setShuffleMode(enabled: Boolean) {
+        setShuffleMode(if (enabled) ShuffleMode.QUEUE else ShuffleMode.OFF)
+    }
+
+    fun cycleShuffleMode(): ShuffleMode {
+        val nextMode = when (_shuffleModeState.value) {
+            ShuffleMode.OFF -> ShuffleMode.QUEUE
+            ShuffleMode.QUEUE -> ShuffleMode.ALL
+            ShuffleMode.ALL -> ShuffleMode.OFF
+        }
+        setShuffleMode(nextMode)
+        return nextMode
+    }
+
+    fun toggleShuffle(): ShuffleMode {
+        return cycleShuffleMode()
+    }
+
+    data class QueueSongItem(
+        val index: Int,
+        val id: Long,
+        val title: String,
+        val artist: String,
+        val filePath: String?,
+        val uri: String?,
+        val artworkUri: String?,
+        val isCurrent: Boolean,
+    )
+
+    fun getQueueItems(): List<QueueSongItem> {
+        val p = player ?: return emptyList()
+        val count = p.mediaItemCount
+        val currentIndex = p.currentMediaItemIndex
+        val list = ArrayList<QueueSongItem>(count)
+        for (i in 0 until count) {
+            val item = p.getMediaItemAt(i)
+            val id = item.mediaId.toLongOrNull() ?: -1L
+            val title = item.mediaMetadata.title?.toString() ?: "Unknown"
+            val artist = item.mediaMetadata.artist?.toString() ?: "Unknown"
+            val filePath = item.mediaMetadata.extras?.getString(EXTRA_FILE_PATH)
+            val uriStr = item.localConfiguration?.uri?.toString()
+            val artworkUri = item.mediaMetadata.artworkUri?.toString()
+            list.add(QueueSongItem(i, id, title, artist, filePath, uriStr, artworkUri, i == currentIndex))
+        }
+        return list
+    }
+
+    fun playQueueItem(index: Int) {
+        val p = player ?: return
+        try {
+            if (index in 0 until p.mediaItemCount) {
+                p.seekTo(index, 0L)
+                if (!p.isPlaying) p.play()
+                savePlaybackState()
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error playing queue item $index", e)
+        }
+    }
+
+    /** Repeat mode property and explicit setter. Supports toggling between Repeat Queue and Repeat One-Song. */
+    var repeatMode: Int
+        get() = player?.repeatMode ?: Player.REPEAT_MODE_ALL
+        set(value) {
+            val p = player ?: return
+            try {
+                p.repeatMode = value
+            } catch (e: Exception) {
+                Log.e("PlaybackController", "Error setting repeat mode", e)
+            }
+        }
+
+    fun setRepeatMode(mode: Int): Int {
+        val p = player ?: return mode
+        try {
+            p.repeatMode = mode
+            return p.repeatMode
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error setting repeat mode", e)
+            return mode
+        }
+    }
+
+    /** 3-state cycle: Repeat Off (0) -> Repeat Queue (2) -> Repeat One-Song (1) -> Repeat Off (0). */
+    fun cycleRepeat(): Int {
+        val p = player ?: return Player.REPEAT_MODE_ALL
+        try {
+            p.repeatMode = when (p.repeatMode) {
+                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+                else -> Player.REPEAT_MODE_ALL
+            }
+            return p.repeatMode
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error cycling repeat", e)
+            return Player.REPEAT_MODE_ALL
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float, pitch: Float) {
+        val p = player ?: return
+        try {
+            p.playbackParameters = androidx.media3.common.PlaybackParameters(speed, pitch)
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error setting playback speed", e)
+        }
+    }
+
+    fun savePlaybackState(immediateSongId: Long? = null, synchronous: Boolean = false) {
+        val p = player ?: return
+        try {
+            val count = p.mediaItemCount
+            val currentIndex = p.currentMediaItemIndex.coerceAtLeast(0)
+            val currentPos = p.currentPosition.coerceAtLeast(0L)
+            val ids = ArrayList<Long>(count)
+            for (i in 0 until count) {
+                val id = p.getMediaItemAt(i).mediaId.toLongOrNull()
+                if (id != null) ids.add(id)
+            }
+            val currentSongId = immediateSongId
+                ?: p.currentMediaItem?.mediaId?.toLongOrNull()
+                ?: (if (currentIndex in 0 until ids.size) ids[currentIndex] else null)
+                ?: -1L
+
+            if (ids.isEmpty() && currentSongId == -1L) return
+
+            val shuffleEnabled = p.shuffleModeEnabled
+            val shuffleInt = _shuffleModeState.value.value
+            val repeatInt = p.repeatMode
+            val queueKey = if (ids.isEmpty()) null else "${ids.size}_${ids.first()}_${ids.last()}_${ids.hashCode()}"
+            val needWriteQueue = queueKey != null && queueKey != lastSavedQueueKey
+
+            fun writePrefs() {
+                val prefs = context.getSharedPreferences("playback_state", Context.MODE_PRIVATE)
+                val editor = prefs.edit()
+                if (needWriteQueue) {
+                    editor.putString("queue_ids", ids.joinToString(","))
+                    lastSavedQueueKey = queueKey
+                }
+                if (currentSongId != -1L) {
+                    editor.putLong("current_song_id", currentSongId)
+                }
+                editor.putInt("queue_index", currentIndex)
+                editor.putLong("queue_position", currentPos)
+                editor.putBoolean("shuffle_mode_enabled", shuffleEnabled)
+                editor.putInt("shuffle_mode_int", shuffleInt)
+                editor.putInt("repeat_mode", repeatInt)
+                if (synchronous) editor.commit() else editor.apply()
+            }
+
+            if (synchronous) {
+                saveStateJob?.cancel()
+                writePrefs()
+            } else {
+                saveStateJob?.cancel()
+                saveStateJob = ioScope.launch {
+                    try { writePrefs() } catch (_: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PlaybackController", "Error saving playback state", e)
+        }
+    }
+
+    private val listener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val id = mediaItem?.mediaId?.toLongOrNull()
+            _currentPlayingSongId.value = id
+            _isPlayingState.value = player?.isPlaying == true
+            _isShuffleEnabledState.value = player?.shuffleModeEnabled == true
+            val p = player
+            if (id != null) {
+                recordRecentPlayed(id)
+                lastPlayedMediaId = id
+                scope.launch {
+                    try {
+                        val now = System.currentTimeMillis()
+                        // 1. Immediately record last_played_timestamp so Recently Played is updated instantly
+                        repository.recordPlayedTimestamp(id, now)
+
+                        // 2. If auto transition (finished previous track), increment play count
+                        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                            repository.markPlayed(id, now)
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            savePlaybackState()
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) consecutiveErrorCount = 0
+            _isPlayingState.value = isPlaying
+            _currentPlayingSongId.value = player?.currentMediaItem?.mediaId?.toLongOrNull()
+            _isShuffleEnabledState.value = player?.shuffleModeEnabled == true
+            savePlaybackState()
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            _isShuffleEnabledState.value = shuffleModeEnabled
+            if (!shuffleModeEnabled) {
+                _shuffleModeState.value = ShuffleMode.OFF
+            } else if (_shuffleModeState.value == ShuffleMode.OFF) {
+                _shuffleModeState.value = ShuffleMode.QUEUE
+            }
+            savePlaybackState()
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            savePlaybackState()
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            Log.e("PlaybackController", "Player error encountered: ${error.errorCodeName} (${error.errorCode})", error)
+            val p = player ?: return
+            consecutiveErrorCount++
+            val maxAttempts = p.mediaItemCount.coerceIn(1, 5)
+            if (consecutiveErrorCount > maxAttempts) {
+                Log.w("PlaybackController", "Stopping auto-skip after $consecutiveErrorCount consecutive errors")
+                p.pause()
+                return
+            }
+            scope.launch {
+                try {
+                    if (p.mediaItemCount > 1) {
+                        if (p.hasNextMediaItem()) {
+                            p.seekToNextMediaItem()
+                        } else if (p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) {
+                            val curIdx = p.currentMediaItemIndex
+                            val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                            val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                            p.seekTo(targetIndex, 0L)
+                        } else {
+                            p.seekTo(0, 0L)
+                        }
+                        p.prepare()
+                        p.play()
+                    }
+                } catch (e: Exception) {
+                    Log.e("PlaybackController", "Failed auto-recovery on error", e)
+                }
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) {
+                consecutiveErrorCount = 0
+            }
+            _isPlayingState.value = player?.isPlaying == true
+            _currentPlayingSongId.value = player?.currentMediaItem?.mediaId?.toLongOrNull()
+            _isShuffleEnabledState.value = player?.shuffleModeEnabled == true
+            if (playbackState == Player.STATE_ENDED) {
+                val p = player
+                if (p != null && p.mediaItemCount > 0) {
+                    val currentId = p.currentMediaItem?.mediaId?.toLongOrNull()
+                    if (currentId != null) {
+                        scope.launch {
+                            try {
+                                repository.markPlayed(currentId, System.currentTimeMillis())
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    if (p.shuffleModeEnabled || _shuffleModeState.value != ShuffleMode.OFF) {
+                        // Reached end of current shuffle deck. Reshuffle continuously with fresh hardware entropy!
+                        val curIdx = p.currentMediaItemIndex
+                        val newOrder = applyHardwareEntropyShuffle(p, fixedFirstIndex = null, avoidFirstIndex = curIdx)
+                        val targetIndex = if (newOrder.firstIndex >= 0) newOrder.firstIndex else 0
+                        p.seekTo(targetIndex, 0L)
+                        p.prepare()
+                        p.play()
+                        savePlaybackState()
+                        return
+                    } else if (p.repeatMode == Player.REPEAT_MODE_ALL) {
+                        p.seekTo(0, 0L)
+                        p.prepare()
+                        p.play()
+                        savePlaybackState()
+                        return
+                    }
+                }
+            }
+            savePlaybackState()
+        }
+    }
+}

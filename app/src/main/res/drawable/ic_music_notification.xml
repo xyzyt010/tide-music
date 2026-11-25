@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <!-- Simple solid white single-tone glyph (two joined wave notes) that the
+         system renders correctly as a small notification icon. Avoid hollow shapes
+         (they don't render in the collapsed status-bar slot on all OEMs). -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,6 L4,18 L12,20 L12,8 L18,6.5 L18,4 Z" />
+</vector>

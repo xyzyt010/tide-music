@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Pitch black for OLED / dark mode window splash. -->
+    <color name="window_background">#000000</color>
+    <color name="accent">#0781FA</color>
+</resources>

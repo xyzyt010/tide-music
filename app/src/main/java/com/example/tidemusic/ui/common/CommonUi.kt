@@ -1,0 +1,1260 @@
+package com.example.tidemusic.ui.common
+
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.draw.drawWithContent
+import com.example.tidemusic.theme.Accent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.blur
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Spacer
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import coil3.compose.AsyncImage
+import com.example.tidemusic.R
+import com.example.tidemusic.di.ServiceLocator
+import com.example.tidemusic.domain.Song
+import com.example.tidemusic.theme.TideColors
+import com.example.tidemusic.ui.LocalMediaController
+import com.example.tidemusic.util.PlaceholderArt
+import com.example.tidemusic.util.formatDuration
+import com.example.tidemusic.util.orUnknown
+import com.example.tidemusic.util.orEmptyIfUnknown
+
+@Composable
+fun ThinTopBar(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    val borderColor = TideColors.outline
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TideColors.background)
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+            .height(44.dp)
+            .drawBehind {
+                val y = size.height
+                drawLine(borderColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+            }
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = TideColors.textPrimary, modifier = Modifier.size(22.dp))
+            }
+        } else {
+            Spacer(Modifier.width(12.dp))
+        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 17.sp,
+            ),
+            color = TideColors.textPrimary,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (trailing != null) {
+            trailing()
+        } else {
+            Spacer(Modifier.width(12.dp))
+        }
+    }
+}
+
+/**
+ * Professional, highly-draggable, hardware-accelerated scrub slider used across
+ * the player time scrubber, mini player timeline, and player volume slider.
+ */
+@Composable
+fun TideScrubSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    range: ClosedFloatingPointRange<Float> = 0f..1f,
+    activeColor: Color = TideColors.accent,
+    inactiveColor: Color = Color.White.copy(alpha = 0.20f),
+    thumbColor: Color = Color.White,
+    haloColor: Color = activeColor.copy(alpha = 0.30f),
+    touchHeight: Dp = 26.dp,
+    restTrackHeight: Dp = 3.dp,
+    dragTrackHeight: Dp = 5.dp,
+    restThumbRadius: Dp = 5.dp,
+    dragThumbRadius: Dp = 8.5.dp,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    val rangeSpan = (range.endInclusive - range.start).coerceAtLeast(0.0001f)
+    var dragValue by remember { mutableStateOf<Float?>(null) }
+    val displayValue = dragValue ?: value
+    val fraction = ((displayValue - range.start) / rangeSpan).coerceIn(0f, 1f)
+
+    val isDragging = dragValue != null
+    val animatedThumbRadius by animateDpAsState(
+        targetValue = if (isDragging) dragThumbRadius else restThumbRadius,
+        label = "tideThumbRadius"
+    )
+    val animatedTrackHeight by animateDpAsState(
+        targetValue = if (isDragging) dragTrackHeight else restTrackHeight,
+        label = "tideTrackHeight"
+    )
+
+    Box(
+        modifier = modifier
+            .height(touchHeight)
+            .pointerInput(range) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        val initialFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        val v = range.start + initialFraction * rangeSpan
+                        dragValue = v
+                        onValueChange(v)
+                    },
+                    onDragEnd = {
+                        dragValue?.let { onValueChange(it) }
+                        dragValue = null
+                        onValueChangeFinished?.invoke()
+                    },
+                    onDragCancel = {
+                        dragValue = null
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        val current = dragValue ?: value
+                        val delta = (dragAmount / size.width) * rangeSpan
+                        val next = (current + delta).coerceIn(range.start, range.endInclusive)
+                        dragValue = next
+                        onValueChange(next)
+                    }
+                )
+            }
+            .pointerInput(range) {
+                detectTapGestures { offset ->
+                    val tappedFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                    val v = range.start + tappedFraction * rangeSpan
+                    onValueChange(v)
+                    onValueChangeFinished?.invoke()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val trackY = size.height / 2f
+            val trackH = animatedTrackHeight.toPx()
+            val thumbR = animatedThumbRadius.toPx()
+            val activeWidth = (size.width * fraction).coerceIn(0f, size.width)
+
+            // Inactive track line
+            drawLine(
+                color = inactiveColor,
+                start = androidx.compose.ui.geometry.Offset(0f, trackY),
+                end = androidx.compose.ui.geometry.Offset(size.width, trackY),
+                strokeWidth = trackH,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+
+            // Active track line
+            if (activeWidth > 0f) {
+                drawLine(
+                    color = activeColor,
+                    start = androidx.compose.ui.geometry.Offset(0f, trackY),
+                    end = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+                    strokeWidth = trackH,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                )
+            }
+
+            // Dragging glowing halo
+            if (isDragging) {
+                drawCircle(
+                    color = haloColor,
+                    radius = thumbR + 7.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+                )
+            }
+
+            // Knob thumb
+            drawCircle(
+                color = thumbColor,
+                radius = thumbR,
+                center = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+            )
+            drawCircle(
+                color = activeColor,
+                radius = thumbR,
+                center = androidx.compose.ui.geometry.Offset(activeWidth, trackY),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+            )
+        }
+    }
+}
+
+/**
+ * Animated sound playing equalizer bar graph (matches Spotify / reference screenshot).
+ * High-performance, hardware-accelerated 7-bar visualizer that dances continuously while isPlaying is true,
+ * and rests at neat varied levels when paused. Never skips frames or freezes.
+ */
+/**
+ * Silky-smooth, continuous 7-bar audio equalizer indicator.
+ * Driven by Choreographer frame callbacks (withFrameNanos) with harmonic, continuous sine waves.
+ * Never freezes, never jumps at cycle boundaries, and gracefully stays active during playback.
+ */
+@Composable
+fun PlayingEqualizerBars(
+    modifier: Modifier = Modifier,
+    color: Color = TideColors.accent,
+    isPlaying: Boolean = true,
+    barCount: Int = 7,
+    barWidth: Dp = 1.8.dp,
+    barSpacing: Dp = 1.4.dp,
+) {
+    val totalWidth = (barWidth * barCount) + (barSpacing * (barCount - 1))
+
+    val phase by produceState(initialValue = 0f, key1 = isPlaying) {
+        if (!isPlaying) {
+            value = 0f
+            return@produceState
+        }
+        val startTime = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { frameTime ->
+                val elapsedMs = (frameTime - startTime) / 1_000_000f
+                value = (elapsedMs % 1200f) / 1200f
+            }
+        }
+    }
+
+    val restingHeights = remember {
+        floatArrayOf(0.35f, 0.65f, 0.45f, 0.85f, 0.50f, 0.75f, 0.40f)
+    }
+
+    val harmonics = remember {
+        intArrayOf(2, 3, 4, 3, 2, 4, 3)
+    }
+
+    Canvas(
+        modifier = modifier.size(width = totalWidth, height = 15.dp)
+    ) {
+        val totalH = size.height
+        val barWidthPx = barWidth.toPx()
+        val barSpacingPx = barSpacing.toPx()
+        val cornerRadius = CornerRadius(barWidthPx / 2f, barWidthPx / 2f)
+
+        var currentX = 0f
+        val currentPhase = phase
+        for (i in 0 until barCount) {
+            val hFrac = if (isPlaying) {
+                val harmonic = harmonics[i % harmonics.size]
+                val offset = (i.toFloat() / barCount.toFloat()) * (2f * Math.PI.toFloat())
+                val sinVal = kotlin.math.sin((currentPhase * 2f * Math.PI.toFloat() * harmonic.toFloat()) + offset)
+                0.22f + 0.72f * ((sinVal + 1f) / 2f)
+            } else {
+                restingHeights[i % restingHeights.size]
+            }
+
+            val barHeightPx = (totalH * hFrac).coerceIn(barWidthPx, totalH)
+            val topPx = totalH - barHeightPx
+
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(currentX, topPx),
+                size = Size(barWidthPx, barHeightPx),
+                cornerRadius = cornerRadius
+            )
+            currentX += barWidthPx + barSpacingPx
+        }
+    }
+}
+
+/**
+ * Top-level mini-player bar displayed across the entire app whenever a song is loaded.
+ * Lifts the live current item / play state from the controller via a simple polling effect
+ * — no Flow factories involved, so listeners are contained within the controller's lifetime
+ * and replaced when the controller is rebuilt (when MainActivity reconnects on process
+ * recreation).
+ */
+@Composable
+fun MiniPlayerBar(onClick: () -> Unit) {
+    val controller = LocalMediaController.current ?: return
+
+    var currentItem by remember { mutableStateOf<MediaItem?>(controller.currentMediaItem) }
+    var isPlaying by remember { mutableStateOf(controller.isPlaying) }
+    var position by remember { mutableFloatStateOf(controller.currentPosition.toFloat()) }
+    var duration by remember { mutableFloatStateOf(controller.duration.coerceAtLeast(0L).toFloat()) }
+    var repeatMode by remember { mutableStateOf(controller.repeatMode) }
+
+    LaunchedEffect(controller) {
+        controller.removeListener(controllerListener)
+        controllerListener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                currentItem = mediaItem
+                position = controller.currentPosition.toFloat()
+                duration = controller.duration.coerceAtLeast(0L).toFloat()
+            }
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+                position = controller.currentPosition.toFloat()
+                duration = controller.duration.coerceAtLeast(0L).toFloat()
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isPlaying = controller.isPlaying
+                position = controller.currentPosition.toFloat()
+                duration = controller.duration.coerceAtLeast(0L).toFloat()
+            }
+            override fun onRepeatModeChanged(mode: Int) {
+                repeatMode = mode
+            }
+        }
+        controller.addListener(controllerListener)
+        currentItem = controller.currentMediaItem
+        isPlaying = controller.isPlaying
+        position = controller.currentPosition.toFloat()
+        duration = controller.duration.coerceAtLeast(0L).toFloat()
+        repeatMode = controller.repeatMode
+    }
+
+    LaunchedEffect(controller, isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                position = controller.currentPosition.toFloat()
+                duration = controller.duration.coerceAtLeast(0L).toFloat()
+                kotlinx.coroutines.delay(500L)
+            }
+        }
+    }
+
+    val song = currentItem?.let(::mediaItemToSongDomain)
+
+    val artworkModel = song?.let {
+        remember(it.id, it.filePath, it.uri, it.dateModified) {
+            com.example.tidemusic.util.SongArtworkRequest(
+                songId = it.id,
+                filePath = it.filePath,
+                uriString = it.uri,
+                dateModified = it.dateModified,
+            )
+        }
+    }
+    var hasArtwork by remember(song?.id) { mutableStateOf(false) }
+    val glassEnabled by com.example.tidemusic.di.ServiceLocator.settingsManager.isGlassEffectsEnabled.collectAsState()
+    val isDarkMode by com.example.tidemusic.di.ServiceLocator.settingsManager.isDarkMode.collectAsState()
+    val surfaceColor = TideColors.surface
+    val hairlineColor = TideColors.textSecondary.copy(alpha = if (hasArtwork && glassEnabled) 0.16f else 0.12f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(102.dp)
+            .padding(0.dp)
+            .clipToBounds()
+            .background(surfaceColor)
+            .drawBehind {
+                // Single subtle top hairline border
+                drawLine(
+                    color = hairlineColor,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .clickable(onClick = onClick),
+    ) {
+        // Frosted glass blurred background of song artwork filling the entire surface
+        if (artworkModel != null && glassEnabled) {
+            AsyncImage(
+                model = artworkModel,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = 1.45f
+                        scaleY = 1.45f
+                    }
+                    .blur(50.dp),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                onState = { state ->
+                    hasArtwork = state is coil3.compose.AsyncImagePainter.State.Success
+                },
+            )
+        }
+
+        // Unified tint overlay: matching the artwork haze with a seamless dark/light gradient
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (hasArtwork && glassEnabled) {
+                        if (isDarkMode) {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xFF141414).copy(alpha = 0.65f),
+                                    Color(0xFF0A0A0A).copy(alpha = 0.88f),
+                                )
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xFFFFFFFF).copy(alpha = 0.72f),
+                                    Color(0xFFF5F5F5).copy(alpha = 0.90f),
+                                )
+                            )
+                        }
+                    } else {
+                        androidx.compose.ui.graphics.SolidColor(TideColors.surface)
+                    }
+                ),
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 6.dp, bottom = 4.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            if (song != null) {
+                // Top row: Song info (Artwork + Title & Artist)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ArtworkTile(song = song, size = 36.dp, rounded = 8.dp)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 10.dp, end = 6.dp),
+                    ) {
+                        Text(
+                            text = song.title.orUnknown(),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp,
+                            ),
+                            color = TideColors.textPrimary,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee(),
+                        )
+                        val cleanArtist = song.artist.orEmptyIfUnknown()
+                        if (cleanArtist.isNotEmpty()) {
+                            Text(
+                                text = cleanArtist,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 11.sp,
+                                ),
+                                color = TideColors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
+                // Middle tier: 5 format playback buttons identical to notification [Prev] [Play/Pause] [Next] [Repeat] [Shuffle]
+                val shuffleMode by com.example.tidemusic.di.ServiceLocator.playbackController.shuffleModeState.collectAsState()
+                val isShuffleActive = shuffleMode != com.example.tidemusic.playback.PlaybackController.ShuffleMode.OFF
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.previous() },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipPrevious,
+                            contentDescription = "Previous",
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.togglePlayPause() },
+                        modifier = Modifier.size(46.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = { com.example.tidemusic.di.ServiceLocator.playbackController.next() },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SkipNext,
+                            contentDescription = "Next",
+                            tint = TideColors.textPrimary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            val nextMode = com.example.tidemusic.di.ServiceLocator.playbackController.cycleRepeat()
+                            repeatMode = nextMode
+                        },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                            contentDescription = if (repeatMode == Player.REPEAT_MODE_ONE) "Repeat One" else "Repeat",
+                            tint = if (repeatMode != Player.REPEAT_MODE_OFF) TideColors.accent else TideColors.textSecondary,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            com.example.tidemusic.di.ServiceLocator.playbackController.cycleShuffleMode()
+                        },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        val shuffleRes = when (shuffleMode) {
+                            com.example.tidemusic.playback.PlaybackController.ShuffleMode.OFF -> R.drawable.ic_notif_shuffle_off
+                            com.example.tidemusic.playback.PlaybackController.ShuffleMode.QUEUE -> R.drawable.ic_notif_shuffle_on
+                            com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL -> R.drawable.ic_notif_shuffle_all
+                        }
+                        Icon(
+                            painter = painterResource(id = shuffleRes),
+                            contentDescription = when (shuffleMode) {
+                                com.example.tidemusic.playback.PlaybackController.ShuffleMode.ALL -> "Shuffle All"
+                                com.example.tidemusic.playback.PlaybackController.ShuffleMode.QUEUE -> "Shuffle Playlist"
+                                else -> "Shuffle Off"
+                            },
+                            tint = if (isShuffleActive) TideColors.accent else TideColors.textSecondary,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(TideColors.outline),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.QueueMusic, null, tint = TideColors.textSecondary, modifier = Modifier.size(24.dp))
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp),
+                    ) {
+                        Text("Not Playing", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp), color = TideColors.textPrimary)
+                        Text("Tap to open player", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp), color = TideColors.textSecondary)
+                    }
+                }
+            }
+
+            // Simple & normal Canvas timeline seek bar with smooth scrubbing matching player section
+            if (song != null && duration > 0f) {
+                TideScrubSlider(
+                    value = position,
+                    range = 0f..duration,
+                    onValueChange = { targetMs ->
+                        controller.seekTo(targetMs.toLong())
+                        position = targetMs
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp),
+                    activeColor = TideColors.textPrimary,
+                    inactiveColor = TideColors.textPrimary.copy(alpha = 0.25f),
+                    thumbColor = TideColors.textPrimary,
+                    touchHeight = 14.dp,
+                    restTrackHeight = 2.dp,
+                    dragTrackHeight = 3.5.dp,
+                    restThumbRadius = 3.5.dp,
+                    dragThumbRadius = 5.5.dp,
+                )
+            } else {
+                Spacer(Modifier.height(3.dp))
+            }
+        }
+    }
+}
+
+/** Lifecycle-managed listener for the mini player (released when composition leaves). */
+private var controllerListener: Player.Listener = object : Player.Listener {}
+
+/**
+ * Resolves album art via Coil. When artwork is missing, shows a black tile with a dark grey-scaled vinyl disc.
+ */
+@Composable
+fun ArtworkTile(song: Song, size: Dp, rounded: Dp = 6.dp) {
+    val artworkModel = remember(song.id, song.filePath, song.uri, song.dateModified) {
+        com.example.tidemusic.util.SongArtworkRequest(
+            songId = song.id,
+            filePath = song.filePath,
+            uriString = song.uri,
+            dateModified = song.dateModified,
+        )
+    }
+    var imageSuccess by remember(song.id) { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(rounded))
+            .background(Color.Black, shape = RoundedCornerShape(rounded)),
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = artworkModel,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            onState = { state ->
+                imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
+            },
+        )
+        if (!imageSuccess) {
+            VinylDiscPlaceholder(modifier = Modifier.fillMaxSize(0.72f), spinning = false)
+        }
+    }
+}
+
+/** Large player artwork: real cover art with adaptive aspect ratio display, or a rotating vinyl disc. */
+@Composable
+fun PlayerArtwork(
+    song: Song,
+    size: Dp? = null,
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = true,
+) {
+    val artworkModel = remember(song.id, song.filePath, song.uri, song.dateModified) {
+        com.example.tidemusic.util.SongArtworkRequest(
+            songId = song.id,
+            filePath = song.filePath,
+            uriString = song.uri,
+            dateModified = song.dateModified,
+        )
+    }
+    var imageSuccess by remember(song.id) { mutableStateOf(false) }
+    var imageAspectRatio by remember(song.id) { mutableFloatStateOf(1f) }
+
+    Box(
+        modifier = modifier
+            .then(if (size != null) Modifier.size(size) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = artworkModel,
+            contentDescription = song.title,
+            modifier = Modifier
+                .fillMaxSize()
+                .aspectRatio(imageAspectRatio)
+                .clip(RoundedCornerShape(16.dp)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            onState = { state ->
+                imageSuccess = state is coil3.compose.AsyncImagePainter.State.Success
+                if (state is coil3.compose.AsyncImagePainter.State.Success) {
+                    val intrinsic = state.painter.intrinsicSize
+                    if (intrinsic.width > 0f && intrinsic.height > 0f) {
+                        imageAspectRatio = intrinsic.width / intrinsic.height
+                    }
+                }
+            },
+        )
+        if (!imageSuccess) {
+            VinylDiscPlaceholder(
+                modifier = Modifier.size(240.dp),
+                spinning = isPlaying,
+            )
+        }
+    }
+}
+
+/** Black vinyl disc with subtle monochromatic white/grey rings; optional rotation while playing. */
+@Composable
+fun VinylDiscPlaceholder(modifier: Modifier = Modifier, spinning: Boolean = false) {
+    val infinite = rememberInfiniteTransition(label = "vinyl")
+    val angle by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "vinylSpin",
+    )
+    val rotation = if (spinning) angle else 0f
+    androidx.compose.foundation.Canvas(
+        modifier = modifier.graphicsLayer { rotationZ = rotation },
+    ) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val r = minOf(size.width, size.height) / 2f
+        // Disc body (charcoal black)
+        drawCircle(color = Color(0xFF141414), radius = r, center = Offset(cx, cy))
+        // Outer subtle white outline
+        drawCircle(
+            color = Color.White.copy(alpha = 0.22f),
+            radius = r,
+            center = Offset(cx, cy),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+        )
+        // Monochromatic groove rings
+        val rings = listOf(0.82f, 0.68f, 0.54f, 0.40f)
+        for (f in rings) {
+            drawCircle(
+                color = Color.White.copy(alpha = 0.08f),
+                radius = r * f,
+                center = Offset(cx, cy),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
+            )
+        }
+        // Label / spindle (dark grey-scaled)
+        drawCircle(color = Color(0xFF262626), radius = r * 0.22f, center = Offset(cx, cy))
+        drawCircle(
+            color = Color.White.copy(alpha = 0.3f),
+            radius = r * 0.22f,
+            center = Offset(cx, cy),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
+        )
+        drawCircle(color = Color(0xFF6B6B6B), radius = r * 0.045f, center = Offset(cx, cy))
+    }
+}
+
+/** Reduces the live MediaItem → domain Song for the mini-player / Player-screen display. */
+fun mediaItemToSongDomain(item: MediaItem): Song {
+    val id = item.mediaId.toLongOrNull() ?: 0L
+    val meta = item.mediaMetadata
+    val extras = meta.extras
+    // tide-art:// is our internal media-session artwork scheme (resolved by
+    // TideArtworkBitmapLoader) — not a directly loadable image URI, so keep it out of the
+    // domain model; UI artwork goes through SongArtworkRequest (file path based) instead.
+    val artwork = extras?.getString(com.example.tidemusic.playback.PlaybackController.EXTRA_ARTWORK_URI)
+        ?.takeIf { !it.startsWith("tidemusic://") && !it.startsWith("tide-art://") }
+        ?: meta.artworkUri?.toString()?.takeIf { !it.startsWith("tidemusic://") && !it.startsWith("tide-art://") }
+    return Song(
+        id = id,
+        filePath = extras?.getString(com.example.tidemusic.playback.PlaybackController.EXTRA_FILE_PATH).orEmpty(),
+        uri = item.localConfiguration?.uri?.toString() ?: "",
+        title = meta.title?.toString() ?: "",
+        artist = meta.artist?.toString() ?: "",
+        album = meta.albumTitle?.toString() ?: "",
+        durationMs = extras?.getLong(com.example.tidemusic.playback.PlaybackController.EXTRA_DURATION_MS) ?: 0L,
+        dateAdded = extras?.getLong(com.example.tidemusic.playback.PlaybackController.EXTRA_DATE_ADDED) ?: 0L,
+        dateModified = extras?.getLong(com.example.tidemusic.playback.PlaybackController.EXTRA_DATE_MODIFIED) ?: 0L,
+        size = extras?.getLong(com.example.tidemusic.playback.PlaybackController.EXTRA_SIZE) ?: 0L,
+        mimeType = extras?.getString(com.example.tidemusic.playback.PlaybackController.EXTRA_MIME_TYPE).orEmpty(),
+        bitrate = extras?.getInt(com.example.tidemusic.playback.PlaybackController.EXTRA_BITRATE) ?: 0,
+        sampleRate = extras?.getInt(com.example.tidemusic.playback.PlaybackController.EXTRA_SAMPLE_RATE) ?: 0,
+        trackNumber = meta.trackNumber ?: 0,
+        discNumber = meta.discNumber ?: 0,
+        playCount = extras?.getInt(com.example.tidemusic.playback.PlaybackController.EXTRA_PLAY_COUNT) ?: 0,
+        lastPlayedTimestamp = extras?.getLong(com.example.tidemusic.playback.PlaybackController.EXTRA_LAST_PLAYED)
+            ?.takeIf { extras.containsKey(com.example.tidemusic.playback.PlaybackController.EXTRA_LAST_PLAYED) },
+        isFavorite = false,
+        folderId = null,
+        artworkUri = artwork,
+    )
+}
+
+/** Single shared row layout for song lists (queue, playlist detail, search results).
+ *  Supports optional multi-select: pass a [MultiSelectState] to enable long-press selection. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun SongRow(
+    song: Song,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailing: @Composable (() -> Unit)? = null,
+    highlight: Boolean = false,
+    multiSelect: MultiSelectState? = null,
+    titleOverride: String? = null,
+    subtitleOverride: String? = null,
+) {
+    val isSelected = multiSelect?.isSelected(song.id) ?: false
+    val bgColor = if (isSelected) TideColors.accent.copy(alpha = 0.15f) else Color.Transparent
+    val songRowBorderColor = TideColors.outline
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(bgColor)
+            .combinedClickable(
+                onClick = {
+                    if (multiSelect != null && multiSelect.active) {
+                        multiSelect.toggle(song.id)
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    multiSelect?.toggle(song.id)
+                },
+            )
+            .drawBehind {
+                val y = size.height
+                drawLine(songRowBorderColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+            }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (multiSelect != null && multiSelect.active) {
+            androidx.compose.material3.Checkbox(
+                checked = isSelected,
+                onCheckedChange = { multiSelect.toggle(song.id) },
+                colors = androidx.compose.material3.CheckboxDefaults.colors(
+                    checkedColor = TideColors.accent,
+                    uncheckedColor = TideColors.textSecondary,
+                ),
+            )
+        }
+        val controller = LocalMediaController.current
+        val activePlayingId by ServiceLocator.playbackController.currentPlayingSongId.collectAsState()
+        val isPlaybackActive by ServiceLocator.playbackController.isPlayingState.collectAsState()
+        val effectivePlayingId = activePlayingId ?: controller?.currentMediaItem?.mediaId?.toLongOrNull()
+        val isCurrentlyPlaying = (effectivePlayingId != null && effectivePlayingId == song.id)
+        val isPlaybackActiveNow = isPlaybackActive || (controller?.isPlaying == true)
+
+        ArtworkTile(song = song, size = 56.dp)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (isCurrentlyPlaying) {
+                    PlayingEqualizerBars(
+                        isPlaying = isPlaybackActiveNow,
+                        color = TideColors.accent,
+                        modifier = Modifier.padding(end = 6.dp)
+                    )
+                }
+                Text(
+                    text = titleOverride ?: song.title.orUnknown(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (isCurrentlyPlaying || highlight) TideColors.accent else TideColors.textPrimary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            val cleanArtist = song.artist.orEmptyIfUnknown()
+            val rowSubtitle = if (cleanArtist.isNotEmpty()) {
+                "$cleanArtist • ${formatDuration(song.durationMs)}"
+            } else {
+                formatDuration(song.durationMs)
+            }
+            Text(
+                text = subtitleOverride ?: rowSubtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = TideColors.textSecondary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (multiSelect == null || !multiSelect.active) {
+            if (trailing != null) {
+                trailing()
+            } else {
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "Song Options",
+                            tint = TideColors.textSecondary,
+                        )
+                    }
+                    SongOverflowMenu(
+                        song = song,
+                        expanded = menuOpen,
+                        onDismiss = { menuOpen = false },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberMediaController(): Player? = LocalMediaController.current
+
+enum class SortCriteria(val label: String, val group: String) {
+    PROBABLE_USAGE("Ranked by Probable Usage (Most Used to Least Used)", "usage"),
+    DATE_ADDED_DESC("Date: Latest to Oldest", "date"),
+    DATE_ADDED_ASC("Date: Oldest to Latest", "date"),
+    
+    TITLE_ASC("Title (A-Z)", "title"),
+    TITLE_DESC("Title (Z-A)", "title"),
+    
+    ARTIST_ASC("Artist (A-Z)", "artist"),
+    ARTIST_DESC("Artist (Z-A)", "artist"),
+    
+    ALBUM_ASC("Album", "album"),
+    
+    RECENTLY_PLAYED("Recently Played", "recently_played"),
+    
+    MOST_PLAYED("Most Played (Play Count)", "most_played"),
+    
+    GENRE_ASC("Genre", "genre"),
+    
+    DURATION_ASC("Duration/Length (Shortest first)", "duration"),
+    DURATION_DESC("Duration/Length (Longest first)", "duration"),
+    
+    LIKED_FIRST("Rating / Liked Songs First", "rating"),
+    SIZE_DESC("File Size (Largest first)", "size"),
+    BITRATE_DESC("Bitrate / Audio Quality", "quality")
+}
+
+fun Song.compareWith(other: Song, criteria: SortCriteria): Int {
+    return try {
+        when (criteria) {
+            SortCriteria.PROBABLE_USAGE -> {
+                val playComp = other.playCount.compareTo(this.playCount)
+                if (playComp != 0) playComp
+                else {
+                    val t1 = this.lastPlayedTimestamp ?: 0L
+                    val t2 = other.lastPlayedTimestamp ?: 0L
+                    t2.compareTo(t1)
+                }
+            }
+            SortCriteria.DATE_ADDED_DESC -> other.dateAdded.compareTo(this.dateAdded)
+            SortCriteria.DATE_ADDED_ASC -> this.dateAdded.compareTo(other.dateAdded)
+            
+            SortCriteria.TITLE_ASC -> this.title.orEmpty().compareTo(other.title.orEmpty(), ignoreCase = true)
+            SortCriteria.TITLE_DESC -> other.title.orEmpty().compareTo(this.title.orEmpty(), ignoreCase = true)
+            
+            SortCriteria.ARTIST_ASC -> this.artist.orEmpty().compareTo(other.artist.orEmpty(), ignoreCase = true)
+            SortCriteria.ARTIST_DESC -> other.artist.orEmpty().compareTo(this.artist.orEmpty(), ignoreCase = true)
+            
+            SortCriteria.ALBUM_ASC -> {
+                val albumComp = this.album.orEmpty().compareTo(other.album.orEmpty(), ignoreCase = true)
+                if (albumComp != 0) albumComp
+                else this.trackNumber.compareTo(other.trackNumber)
+            }
+            
+            SortCriteria.RECENTLY_PLAYED -> {
+                val t1 = this.lastPlayedTimestamp ?: 0L
+                val t2 = other.lastPlayedTimestamp ?: 0L
+                t2.compareTo(t1)
+            }
+            
+            SortCriteria.MOST_PLAYED -> other.playCount.compareTo(this.playCount)
+            
+            SortCriteria.GENRE_ASC -> this.mimeType.orEmpty().compareTo(other.mimeType.orEmpty(), ignoreCase = true)
+            
+            SortCriteria.DURATION_ASC -> this.durationMs.compareTo(other.durationMs)
+            SortCriteria.DURATION_DESC -> other.durationMs.compareTo(this.durationMs)
+            
+            SortCriteria.LIKED_FIRST -> {
+                val b1 = if (this.isFavorite) 1 else 0
+                val b2 = if (other.isFavorite) 1 else 0
+                b2.compareTo(b1)
+            }
+            
+            SortCriteria.SIZE_DESC -> other.size.compareTo(this.size)
+            SortCriteria.BITRATE_DESC -> {
+                val r = other.bitrate.compareTo(this.bitrate)
+                if (r != 0) r else other.sampleRate.compareTo(this.sampleRate)
+            }
+        }
+    } catch (e: Exception) {
+        0
+    }
+}
+
+fun List<Song>.applySortCriteria(criteriaList: List<SortCriteria>): List<Song> {
+    if (criteriaList.isEmpty()) return this
+    return try {
+        this.sortedWith { s1, s2 ->
+            for (criteria in criteriaList) {
+                val comp = s1.compareWith(s2, criteria)
+                if (comp != 0) return@sortedWith comp
+            }
+            0
+        }
+    } catch (e: Exception) {
+        this
+    }
+}
+
+@Composable
+fun TickmarkBox(
+    checked: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val backgroundColor = if (checked) TideColors.accent else Color.Transparent
+    val borderColor = if (checked) TideColors.accent else TideColors.textSecondary
+    val checkmarkColor = TideColors.background
+
+    Box(
+        modifier = modifier
+            .size(18.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(backgroundColor)
+            .border(
+                width = 1.5.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(4.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (checked) {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = null,
+                tint = checkmarkColor,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SortDropdown(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    activeCriteria: List<SortCriteria>,
+    onCriteriaChanged: (List<SortCriteria>) -> Unit
+) {
+    androidx.compose.material3.DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = Modifier
+            .width(290.dp)
+            .background(TideColors.surfaceElevated)
+    ) {
+        Text(
+            text = "Sort By",
+            style = MaterialTheme.typography.titleMedium,
+            color = TideColors.textPrimary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        )
+        androidx.compose.material3.HorizontalDivider(
+            color = TideColors.outline,
+            thickness = 1.dp
+        )
+        
+        SortCriteria.entries.forEach { criteria ->
+            val isChecked = activeCriteria.contains(criteria)
+            androidx.compose.material3.DropdownMenuItem(
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TickmarkBox(
+                            checked = isChecked,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = criteria.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isChecked) TideColors.accent else TideColors.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                },
+                onClick = {
+                    val newCriteria = activeCriteria.toMutableList()
+                    if (isChecked) {
+                        newCriteria.remove(criteria)
+                    } else {
+                        newCriteria.removeAll { it.group == criteria.group }
+                        newCriteria.add(criteria)
+                    }
+                    onCriteriaChanged(newCriteria)
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Draws a thin, sleek vertical scrollbar indicator at the right edge of a scrollable container.
+ * Only renders when the content is actually scrollable (maxValue > 0).
+ */
+fun Modifier.verticalScrollbar(
+    scrollState: ScrollState,
+    color: Color = Color.White.copy(alpha = 0.85f),
+    trackColor: Color = Color.White.copy(alpha = 0.12f),
+    width: androidx.compose.ui.unit.Dp = 3.dp,
+    paddingEnd: androidx.compose.ui.unit.Dp = 2.dp,
+    paddingVertical: androidx.compose.ui.unit.Dp = 4.dp,
+    cornerRadius: androidx.compose.ui.unit.Dp = 1.5.dp,
+): Modifier = drawWithContent {
+    drawContent()
+    val totalHeight = size.height - (paddingVertical.toPx() * 2)
+    if (scrollState.maxValue > 0 && totalHeight > 0) {
+        val viewPortLength = totalHeight
+        val totalLength = viewPortLength + scrollState.maxValue
+        val thumbLength = (viewPortLength / totalLength * viewPortLength).coerceIn(20.dp.toPx(), viewPortLength)
+        val scrollRatio = (scrollState.value.toFloat() / scrollState.maxValue).coerceIn(0f, 1f)
+        val thumbOffset = paddingVertical.toPx() + (scrollRatio * (viewPortLength - thumbLength))
+        val xPos = size.width - width.toPx() - paddingEnd.toPx()
+
+        // Subtle track showing full scrollable extent
+        drawRoundRect(
+            color = trackColor,
+            topLeft = Offset(xPos, paddingVertical.toPx()),
+            size = Size(width.toPx(), viewPortLength),
+            cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+        )
+
+        // Active white thumb showing exact viewing position
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(xPos, thumbOffset),
+            size = Size(width.toPx(), thumbLength),
+            cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+        )
+    }
+}
+
+/**
+ * Draws a thin, sleek vertical scrollbar indicator at the right edge of a LazyColumn.
+ * Computes exact fractional scroll position continuously without jumping.
+ */
+fun Modifier.verticalScrollbar(
+    lazyListState: LazyListState,
+    color: Color = Color.White.copy(alpha = 0.85f),
+    trackColor: Color = Color.White.copy(alpha = 0.12f),
+    width: androidx.compose.ui.unit.Dp = 3.dp,
+    paddingEnd: androidx.compose.ui.unit.Dp = 2.dp,
+    paddingVertical: androidx.compose.ui.unit.Dp = 4.dp,
+    cornerRadius: androidx.compose.ui.unit.Dp = 1.5.dp,
+): Modifier = drawWithContent {
+    drawContent()
+    val layoutInfo = lazyListState.layoutInfo
+    val totalItems = layoutInfo.totalItemsCount
+    val visibleItems = layoutInfo.visibleItemsInfo
+    if (totalItems > 0 && visibleItems.isNotEmpty() && visibleItems.size < totalItems) {
+        val totalHeight = size.height - (paddingVertical.toPx() * 2)
+        if (totalHeight > 0) {
+            val visibleCount = visibleItems.size.toFloat()
+            val firstItem = visibleItems.first()
+            val lastItem = visibleItems.last()
+            val avgItemSize = ((lastItem.offset + lastItem.size - firstItem.offset).toFloat() / visibleCount).coerceAtLeast(1f)
+            val estimatedTotalSize = totalItems * avgItemSize
+            val viewportSize = totalHeight
+
+            val currentScrollOffset = (lazyListState.firstVisibleItemIndex * avgItemSize) + lazyListState.firstVisibleItemScrollOffset
+            val maxScrollOffset = (estimatedTotalSize - viewportSize).coerceAtLeast(1f)
+            val scrollRatio = (currentScrollOffset / maxScrollOffset).coerceIn(0f, 1f)
+            val thumbLength = ((viewportSize / estimatedTotalSize) * viewportSize).coerceIn(24.dp.toPx(), viewportSize)
+            val thumbOffset = paddingVertical.toPx() + (scrollRatio * (viewportSize - thumbLength))
+            val xPos = size.width - width.toPx() - paddingEnd.toPx()
+
+            // Subtle track showing full list extent
+            drawRoundRect(
+                color = trackColor,
+                topLeft = Offset(xPos, paddingVertical.toPx()),
+                size = Size(width.toPx(), viewportSize),
+                cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+            )
+
+            // Active white thumb showing exact viewing position in list
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(xPos, thumbOffset),
+                size = Size(width.toPx(), thumbLength),
+                cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
+            )
+        }
+    }
+}
+
