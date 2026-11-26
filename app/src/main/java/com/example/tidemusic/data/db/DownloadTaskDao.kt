@@ -16,10 +16,10 @@ interface DownloadTaskDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: DownloadTaskEntity): Long
 
-    @Query("UPDATE download_tasks SET status = :status, progress = :progress WHERE id = :id")
+    @Query("UPDATE download_tasks SET status = :status, progress = MAX(progress, :progress) WHERE id = :id AND status NOT LIKE 'Done%' AND status NOT LIKE 'Failed%'")
     suspend fun updateProgress(id: Long, status: String, progress: Int)
 
-    @Query("UPDATE download_tasks SET status = :status, destination_path = :path WHERE id = :id")
+    @Query("UPDATE download_tasks SET status = :status, progress = 100, destination_path = :path WHERE id = :id")
     suspend fun updateFinal(id: Long, status: String, path: String?)
 
     @Query("DELETE FROM download_tasks WHERE id = :id")

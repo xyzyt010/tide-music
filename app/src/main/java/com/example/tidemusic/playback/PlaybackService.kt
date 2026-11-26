@@ -446,7 +446,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     syncPlaybackAndNotification()
                 }
                 ACTION_CLOSE -> {
-                    saveState()
+                    saveState(synchronous = true)
                     player?.stop()
                     player?.clearMediaItems()
                     stopForegroundCompat(true)
@@ -799,6 +799,11 @@ class PlaybackService : MediaBrowserServiceCompat() {
                 val savedRepeat = prefs.getInt("repeat_mode", Player.REPEAT_MODE_ALL)
 
                 withContext(Dispatchers.Main) {
+                    val p = player ?: return@withContext
+                    // Do not overwrite an explicit user/pending queue that started before IO finished.
+                    if (p.mediaItemCount > 0 || playbackController.hasPendingQueueAction) {
+                        return@withContext
+                    }
                     val mediaItems = queueSongs.map { playbackController.mediaItemFor(it) }
                     if (mediaItems.isNotEmpty()) {
                         val exactIndex = if (savedSongId != -1L) {
@@ -807,14 +812,14 @@ class PlaybackService : MediaBrowserServiceCompat() {
                         } else {
                             savedIndex.coerceIn(0, mediaItems.lastIndex)
                         }
-                        player?.setMediaItems(mediaItems, exactIndex, savedPosition)
+                        p.shuffleModeEnabled = savedShuffleMode != PlaybackController.ShuffleMode.OFF
+                        p.repeatMode = savedRepeat
+                        p.setMediaItems(mediaItems, exactIndex, savedPosition)
                         if (savedShuffleMode != PlaybackController.ShuffleMode.OFF && mediaItems.size > 1) {
-                            playbackController.applyHardwareEntropyShuffle(player!!, fixedFirstIndex = exactIndex)
+                            playbackController.applyHardwareEntropyShuffle(p, fixedFirstIndex = exactIndex)
                         }
-                        player?.shuffleModeEnabled = savedShuffleMode != PlaybackController.ShuffleMode.OFF
-                        player?.repeatMode = savedRepeat
                         playbackController.restoreShuffleState(savedShuffleMode)
-                        player?.prepare()
+                        p.prepare()
                         syncPlaybackAndNotification(updateMetadataAndQueue = true)
                     }
                 }
@@ -916,7 +921,7 @@ class PlaybackService : MediaBrowserServiceCompat() {
                     return START_NOT_STICKY
                 }
                 ACTION_CLOSE -> {
-                    saveState()
+                    saveState(synchronous = true)
                     player?.stop()
                     player?.clearMediaItems()
                     stopForegroundCompat(true)

@@ -119,17 +119,21 @@ class RustYtDlpDownloadManager(
             DownloadService.update(context, active, 0, url)
 
             try {
-                downloadTaskDao.updateProgress(taskId, "Downloading (Rust)", 0)
+                downloadTaskDao.updateProgress(taskId, "Fetching stream (Rust)...", 8)
+                val lastReportedProgress = java.util.concurrent.atomic.AtomicInteger(8)
 
                 val rawName = "audio_$taskId"
                 val destRaw = File(taskDir, "$rawName.bin").absolutePath
 
                 val callback = object : RustYtDlpBridge.DownloadCallback {
                     override fun onProgress(progress01: Float) {
-                        val mapped = (progress01 * 90f).toInt().coerceIn(0, 90)
-                        DownloadService.update(context, activeTasksCount.get(), mapped, url)
-                        scope.launch {
-                            downloadTaskDao.updateProgress(taskId, "Downloading (Rust)", mapped)
+                        val mapped = (10f + progress01.coerceIn(0f, 1f) * 76f).toInt().coerceIn(10, 86)
+                        val prev = lastReportedProgress.get()
+                        if (mapped > prev && lastReportedProgress.compareAndSet(prev, mapped)) {
+                            DownloadService.update(context, activeTasksCount.get(), mapped, url)
+                            scope.launch {
+                                downloadTaskDao.updateProgress(taskId, "Downloading (Rust)", mapped)
+                            }
                         }
                     }
                 }
@@ -156,7 +160,9 @@ class RustYtDlpDownloadManager(
                     3 -> throw java.io.IOException("Rust engine failed (see logcat $TAG)")
                 }
 
-                downloadTaskDao.updateProgress(taskId, "Finalizing...", 95)
+                lastReportedProgress.set(90)
+                DownloadService.update(context, activeTasksCount.get(), 90, url)
+                downloadTaskDao.updateProgress(taskId, "Converting & finalizing...", 90)
 
                 val rawFile = File(destRaw)
                 if (!rawFile.exists() || rawFile.length() == 0L) {

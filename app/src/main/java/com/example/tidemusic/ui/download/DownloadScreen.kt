@@ -44,7 +44,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -401,12 +400,31 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
                                 }
                             }
                             if (!isDone && !isFailed) {
-                                LinearProgressIndicator(
-                                    progress = { task.progress / 100f },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                                    color = TideColors.accent,
-                                    trackColor = TideColors.outline,
+                                val targetFraction = (task.progress.coerceIn(0, 100) / 100f)
+                                val animatedFraction by androidx.compose.animation.core.animateFloatAsState(
+                                    targetValue = targetFraction,
+                                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 220),
+                                    label = "downloadProgressBar",
                                 )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp)
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(TideColors.outline),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    if (animatedFraction > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(animatedFraction)
+                                                .height(5.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(TideColors.accent),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

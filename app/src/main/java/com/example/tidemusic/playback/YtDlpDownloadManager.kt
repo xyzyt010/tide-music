@@ -116,7 +116,24 @@ class YtDlpDownloadManager(
             DownloadService.update(context, active, 0, url)
 
             try {
-                downloadTaskDao.updateProgress(taskId, "Downloading", 0)
+                downloadTaskDao.updateProgress(taskId, "Fetching info...", 8)
+                val lastReportedProgress = java.util.concurrent.atomic.AtomicInteger(8)
+
+                fun reportMonotonicProgress(rawPercent: Float, stageLabel: String) {
+                    val prev = lastReportedProgress.get()
+                    val mapped = if (rawPercent < 0f) {
+                        // Indeterminate metadata/subtitle preparation: nudge gently 10% -> 24%.
+                        (prev + 2).coerceIn(10, 24)
+                    } else {
+                        (15 + (rawPercent * 0.72f)).toInt().coerceIn(15, 87)
+                    }
+                    if (mapped > prev && lastReportedProgress.compareAndSet(prev, mapped)) {
+                        DownloadService.update(context, activeTasksCount.get(), mapped, url)
+                        scope.launch {
+                            downloadTaskDao.updateProgress(taskId, stageLabel, mapped)
+                        }
+                    }
+                }
 
                 fun buildRequest(withLyrics: Boolean): YoutubeDLRequest {
                     val req = YoutubeDLRequest(url)
@@ -165,24 +182,17 @@ class YtDlpDownloadManager(
                 try {
                     val request = buildRequest(downloadWithLyrics)
                     YoutubeDL.getInstance().execute(request, taskId.toString()) { progress, _, _ ->
-                        val mappedProgress = (progress * 0.90f).toInt().coerceIn(0, 90)
-                        DownloadService.update(context, activeTasksCount.get(), mappedProgress, url)
-                        scope.launch {
-                            downloadTaskDao.updateProgress(taskId, "Downloading", mappedProgress)
-                        }
+                        reportMonotonicProgress(progress, "Downloading")
                     }
                     downloadSuccess = true
                 } catch (firstAttemptError: Exception) {
                     Log.w("YtDlpDownload", "Primary download failed. Trying pure audio fallback...", firstAttemptError)
                     if (downloadWithLyrics) {
-                        downloadTaskDao.updateProgress(taskId, "Retrying Audio...", 10)
+                        lastReportedProgress.updateAndGet { maxOf(it, 12) }
+                        downloadTaskDao.updateProgress(taskId, "Retrying Audio...", lastReportedProgress.get())
                         val fallbackRequest = buildRequest(false)
                         YoutubeDL.getInstance().execute(fallbackRequest, taskId.toString()) { progress, _, _ ->
-                            val mappedProgress = (progress * 0.90f).toInt().coerceIn(0, 90)
-                            DownloadService.update(context, activeTasksCount.get(), mappedProgress, url)
-                            scope.launch {
-                                downloadTaskDao.updateProgress(taskId, "Downloading Audio", mappedProgress)
-                            }
+                            reportMonotonicProgress(progress, "Downloading Audio")
                         }
                         downloadSuccess = true
                     } else {
@@ -190,7 +200,9 @@ class YtDlpDownloadManager(
                     }
                 }
 
-                downloadTaskDao.updateProgress(taskId, "Finalizing...", 95)
+                lastReportedProgress.set(93)
+                DownloadService.update(context, activeTasksCount.get(), 93, url)
+                downloadTaskDao.updateProgress(taskId, "Finalizing...", 93)
 
                 val publicMusicDir = File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),

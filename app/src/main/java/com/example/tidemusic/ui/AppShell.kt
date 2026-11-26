@@ -293,17 +293,18 @@ fun AppShell(initialDeepLink: String? = null) {
                                     }
                                 }
 
-                                // "More" overflow menu item as the 5th equally-weighted item
+                                // "More" overflow menu: compact horizontal width while keeping same 24.dp icon & popup menu
                                 Box(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.width(44.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
+                                            .fillMaxWidth()
                                             .clickable { menuOpen = true }
                                     ) {
-                                        Box(modifier = Modifier.width(32.dp).height(2.5.dp))
+                                        Box(modifier = Modifier.width(24.dp).height(2.5.dp))
                                         Spacer(Modifier.height(5.dp))
                                         Icon(
                                             imageVector = Icons.Rounded.MoreVert,

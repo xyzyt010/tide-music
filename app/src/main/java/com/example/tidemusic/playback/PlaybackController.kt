@@ -131,14 +131,26 @@ class PlaybackController constructor(
         }
     }
 
-    private val _shuffleModeState = MutableStateFlow(ShuffleMode.OFF)
+    private fun readInitialShuffleMode(): ShuffleMode {
+        val prefs = context.getSharedPreferences("playback_state", Context.MODE_PRIVATE)
+        val savedShuffleInt = prefs.getInt(
+            "shuffle_mode_int",
+            if (prefs.getBoolean("shuffle_mode_enabled", false)) ShuffleMode.QUEUE.value else ShuffleMode.OFF.value
+        )
+        return ShuffleMode.fromValue(savedShuffleInt)
+    }
+
+    private val _shuffleModeState = MutableStateFlow(readInitialShuffleMode())
     val shuffleModeState: StateFlow<ShuffleMode> = _shuffleModeState.asStateFlow()
 
-    private val _isShuffleEnabledState = MutableStateFlow(false)
+    private val _isShuffleEnabledState = MutableStateFlow(_shuffleModeState.value != ShuffleMode.OFF)
     val isShuffleEnabledState: StateFlow<Boolean> = _isShuffleEnabledState.asStateFlow()
 
     private val _playerState = MutableStateFlow<Player?>(null)
     val playerState: StateFlow<Player?> = _playerState.asStateFlow()
+
+    val hasPendingQueueAction: Boolean
+        get() = pendingQueueAction != null
 
     fun toggleFavoriteCurrentSong(onResult: ((Boolean) -> Unit)? = null) {
         val id = currentMediaId ?: return
@@ -204,6 +216,13 @@ class PlaybackController constructor(
         player = p
         _playerState.value = p
         try {
+            // Sync saved shuffle state onto the new ExoPlayer BEFORE attaching the listener
+            // so ExoPlayer's initial false flag never clobbers persisted ShuffleMode.ALL / QUEUE.
+            val targetShuffleMode = _shuffleModeState.value
+            val shouldShuffle = targetShuffleMode != ShuffleMode.OFF
+            p.shuffleModeEnabled = shouldShuffle
+            _isShuffleEnabledState.value = shouldShuffle
+
             p.addListener(listener)
             _currentPlayingSongId.value = p.currentMediaItem?.mediaId?.toLongOrNull()
             _isPlayingState.value = p.isPlaying
@@ -211,13 +230,6 @@ class PlaybackController constructor(
             pendingQueueAction = null
             if (pending != null) {
                 pending.invoke()
-            } else {
-                _isShuffleEnabledState.value = p.shuffleModeEnabled
-                if (!p.shuffleModeEnabled) {
-                    _shuffleModeState.value = ShuffleMode.OFF
-                } else if (_shuffleModeState.value == ShuffleMode.OFF) {
-                    _shuffleModeState.value = ShuffleMode.QUEUE
-                }
             }
         } catch (_: Exception) {}
     }
@@ -330,21 +342,64 @@ class PlaybackController constructor(
                 }
             }
 
-            // Preserve active shuffle mode (QUEUE or ALL) seamlessly across playlist/search switches.
-            val shouldShuffle = _shuffleModeState.value != ShuffleMode.OFF || p.shuffleModeEnabled
-            if (shouldShuffle && _shuffleModeState.value == ShuffleMode.OFF) {
-                _shuffleModeState.value = ShuffleMode.QUEUE
+            val currentShuffleMode = _shuffleModeState.value
+            val shouldShuffle = currentShuffleMode != ShuffleMode.OFF || p.shuffleModeEnabled
+            val effectiveMode = when {
+                currentShuffleMode != ShuffleMode.OFF -> currentShuffleMode
+                p.shuffleModeEnabled -> ShuffleMode.QUEUE
+                else -> ShuffleMode.OFF
             }
+            _shuffleModeState.value = effectiveMode
             _isShuffleEnabledState.value = shouldShuffle
 
-            p.setMediaItems(mediaItems, safeIndex, 0L)
             p.shuffleModeEnabled = shouldShuffle
+            p.setMediaItems(mediaItems, safeIndex, 0L)
             if (shouldShuffle && mediaItems.size > 1) {
                 applyHardwareEntropyShuffle(p, fixedFirstIndex = safeIndex)
             }
             p.prepare()
             p.playWhenReady = true
             savePlaybackState(immediateSongId = targetSong?.id)
+
+            // If Shuffle ALL is active ("Shuffle all songs in library"), keep UI & backend in sync:
+            // start playing the tapped song immediately with zero audio cut and expand the rest of
+            // the shuffled deck with all library songs.
+            if (effectiveMode == ShuffleMode.ALL && targetSong != null) {
+                val chosenSongId = targetSong.id
+                shuffleAllJob = scope.launch {
+                    try {
+                        val allSongs = repository.observeAllSongs().first()
+                        if (allSongs.size > 1 && _shuffleModeState.value == ShuffleMode.ALL) {
+                            val activeId = p.currentMediaItem?.mediaId?.toLongOrNull()
+                            if (activeId == chosenSongId) {
+                                if (p.mediaItemCount == allSongs.size) {
+                                    p.shuffleModeEnabled = true
+                                    savePlaybackState(immediateSongId = chosenSongId)
+                                } else {
+                                    val curIdx = p.currentMediaItemIndex.coerceIn(0, (p.mediaItemCount - 1).coerceAtLeast(0))
+                                    if (p.mediaItemCount > curIdx + 1) {
+                                        p.removeMediaItems(curIdx + 1, p.mediaItemCount)
+                                    }
+                                    if (curIdx > 0) {
+                                        p.removeMediaItems(0, curIdx)
+                                    }
+                                    val otherSongs = allSongs.filter { it.id != chosenSongId }
+                                    if (otherSongs.isNotEmpty()) {
+                                        p.addMediaItems(otherSongs.map(::mediaItemFor))
+                                        applyHardwareEntropyShuffle(p, fixedFirstIndex = 0)
+                                    }
+                                    p.shuffleModeEnabled = true
+                                    savePlaybackState(immediateSongId = chosenSongId)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (e !is kotlinx.coroutines.CancellationException) {
+                            Log.e("PlaybackController", "Error expanding Shuffle ALL queue", e)
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error setting queue", e)
         }
@@ -639,10 +694,12 @@ class PlaybackController constructor(
 
     fun stop() {
         val p = player ?: return
+        shuffleAllJob?.cancel()
+        shuffleAllJob = null
         try {
+            savePlaybackState(synchronous = true)
             p.stop()
             p.clearMediaItems()
-            savePlaybackState()
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error stopping playback", e)
         }
@@ -650,10 +707,12 @@ class PlaybackController constructor(
 
     fun clearQueue() {
         val p = player ?: return
+        shuffleAllJob?.cancel()
+        shuffleAllJob = null
         try {
+            savePlaybackState(synchronous = true)
             p.stop()
             p.clearMediaItems()
-            savePlaybackState()
         } catch (e: Exception) {
             Log.e("PlaybackController", "Error clearing queue", e)
         }
