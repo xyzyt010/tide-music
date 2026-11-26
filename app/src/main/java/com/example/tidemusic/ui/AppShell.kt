@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -80,6 +81,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.height
@@ -503,29 +505,39 @@ fun AppShell(initialDeepLink: String? = null) {
             ) + fadeOut(animationSpec = tween(180)),
             modifier = Modifier.fillMaxSize().zIndex(20f),
         ) {
-            BackHandler(enabled = isPlayerExpanded) {
-                isPlayerExpanded = false
-            }
-            PlayerScreen(
-                onBack = { isPlayerExpanded = false },
-                onNavigate = { dest ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        // Intercept and consume unhandled taps on the player overlay so nothing falls
+                        // through to underlying song lists, buttons, MiniPlayerBar, or bottom dock.
+                        detectTapGestures { }
+                    },
+            ) {
+                BackHandler(enabled = isPlayerExpanded) {
                     isPlayerExpanded = false
-                    val sectionIndex = sections.indexOf(dest)
-                    if (sectionIndex >= 0) {
-                        scope.launch {
-                            try {
-                                pagerState.animateScrollToPage(sectionIndex)
-                            } catch (_: Exception) {
-                                pagerState.scrollToPage(sectionIndex)
+                }
+                PlayerScreen(
+                    onBack = { isPlayerExpanded = false },
+                    onNavigate = { dest ->
+                        isPlayerExpanded = false
+                        val sectionIndex = sections.indexOf(dest)
+                        if (sectionIndex >= 0) {
+                            scope.launch {
+                                try {
+                                    pagerState.animateScrollToPage(sectionIndex)
+                                } catch (_: Exception) {
+                                    pagerState.scrollToPage(sectionIndex)
+                                }
                             }
+                        } else {
+                            try {
+                                backStack.add(dest)
+                            } catch (_: Exception) {}
                         }
-                    } else {
-                        try {
-                            backStack.add(dest)
-                        } catch (_: Exception) {}
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
 
         // In-App Dynamic Island Mini Pill Widget (Black capsule pill with tiny artwork + animated sound bars)

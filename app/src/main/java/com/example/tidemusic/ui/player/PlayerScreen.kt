@@ -397,7 +397,12 @@ fun PlayerScreen(
 
     if (s == null) {
         Box(
-            Modifier.fillMaxSize().background(TideColors.background),
+            Modifier
+                .fillMaxSize()
+                .background(TideColors.background)
+                .pointerInput(Unit) {
+                    detectTapGestures { }
+                },
             contentAlignment = Alignment.Center,
         ) {
             Text("Nothing playing", style = MaterialTheme.typography.bodyLarge, color = TideColors.textSecondary)
@@ -423,7 +428,12 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .clipToBounds()
-            .background(TideColors.background),
+            .background(TideColors.background)
+            .pointerInput(Unit) {
+                // Absorb any unhandled taps across the entire PlayerScreen surface so empty areas,
+                // title/artist labels, spacers, and margins never do anything or leak beneath.
+                detectTapGestures { }
+            },
     ) {
         // 1. Frosted glass blurred background if song has image and glassEnabled is true.
         if (glassEnabled) {
@@ -511,7 +521,8 @@ fun PlayerScreen(
                                     .heightIn(max = 280.dp)
                                     .pointerInput(s.id) {
                                         detectTapGestures(
-                                            onDoubleTap = { showPhotoPreview = true }
+                                            onDoubleTap = { showPhotoPreview = true },
+                                            onTap = { /* absorb single tap so nothing reacts */ },
                                         )
                                     },
                                 isPlaying = isPlaying,
@@ -530,11 +541,11 @@ fun PlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Animated 2-dot / oval pill indicator in pure white
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     for (i in 0..1) {
@@ -549,20 +560,29 @@ fun PlayerScreen(
 
                         Box(
                             modifier = Modifier
-                                .width(widthAnim)
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(2.5.dp))
-                                .background(color)
-                                .clickable {
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
                                     scope.launch {
                                         pagerState.animateScrollToPage(i)
                                     }
                                 }
-                        )
+                                .padding(horizontal = 3.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(widthAnim)
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(2.5.dp))
+                                    .background(color),
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -1743,7 +1763,8 @@ fun PhotoZoomPreview(
                         } else {
                             scale = 2.5f
                         }
-                    }
+                    },
+                    onTap = { /* absorb single tap inside preview */ },
                 )
             },
         contentAlignment = Alignment.Center,

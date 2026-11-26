@@ -451,7 +451,6 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
                 }
 
                 itemsIndexed(ytDlpSongs, key = { _, s -> s.id }) { index, song ->
-                    var menuExpanded by remember { mutableStateOf(false) }
                     val hasLrc = remember(song.filePath) {
                         try {
                             if (song.filePath.isNotBlank()) {
@@ -462,61 +461,56 @@ fun DownloadScreen(viewModel: DownloadViewModel = rememberTideViewModel {
                         } catch (_: Exception) { false }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            SongRow(
-                                song = song,
-                                onClick = {
-                                    if (multiSelect.active) {
-                                        multiSelect.toggle(song.id)
-                                    } else {
-                                        viewModel.playSongAt(index, ytDlpSongs)
-                                    }
-                                },
-                                multiSelect = multiSelect,
-                            )
-                        }
-                        if (hasLrc && !multiSelect.active) {
-                            Box(
-                                modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF4CAF50).copy(alpha = 0.18f))
-                                    .padding(horizontal = 5.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    text = "LRC",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    color = Color(0xFF4CAF50),
-                                    fontWeight = FontWeight.Bold,
-                                )
+                    SongRow(
+                        song = song,
+                        onClick = {
+                            if (multiSelect.active) {
+                                multiSelect.toggle(song.id)
+                            } else {
+                                viewModel.playSongAt(index, ytDlpSongs)
                             }
-                        }
-                        if (!multiSelect.active) {
-                            Box {
-                                IconButton(onClick = { menuExpanded = true }) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.MoreVert,
-                                        contentDescription = "Options",
-                                        tint = TideColors.textSecondary,
-                                        modifier = Modifier.size(20.dp),
+                        },
+                        multiSelect = multiSelect,
+                        trailing = {
+                            var menuExpanded by remember(song.id) { mutableStateOf(false) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (hasLrc) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(end = 2.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF4CAF50).copy(alpha = 0.18f))
+                                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            text = "LRC",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = Color(0xFF4CAF50),
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                }
+                                Box {
+                                    IconButton(onClick = { menuExpanded = true }) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.MoreVert,
+                                            contentDescription = "Song Options",
+                                            tint = TideColors.textSecondary,
+                                        )
+                                    }
+                                    SongOverflowMenu(
+                                        song = song,
+                                        expanded = menuExpanded,
+                                        onDismiss = { menuExpanded = false },
+                                        showRemoveFromQueue = true,
+                                        onRemoveFromQueue = {
+                                            viewModel.removeFromYtDlpPlaylist(song.id)
+                                        },
                                     )
                                 }
-                                SongOverflowMenu(
-                                    song = song,
-                                    expanded = menuExpanded,
-                                    onDismiss = { menuExpanded = false },
-                                    showRemoveFromQueue = true,
-                                    onRemoveFromQueue = {
-                                        viewModel.removeFromYtDlpPlaylist(song.id)
-                                    },
-                                )
                             }
-                        }
-                    }
+                        },
+                    )
                 }
             }
         }
